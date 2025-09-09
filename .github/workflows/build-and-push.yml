@@ -121,9 +121,17 @@ jobs:
             https://api.github.com/user \
             -w "\nHTTP Status: %{http_code}\n"
           echo "Testing target repo access..."
-          curl -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
-          https://api.github.com/repos/StockOne19/deploy \
-          -w "\nHTTP Status: %{http_code}\n"
+            curl -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
+            https://api.github.com/repos/StockOne19/deploy \
+            -w "\nHTTP Status: %{http_code}\n"
+          echo "Testing target repo access..."
+            curl -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
+            https://api.github.com/repos/StockOne19/stock-app \
+            -w "\nHTTP Status: %{http_code}\n"
+          echo "Testing target repo access..."
+            curl -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
+            https://api.github.com/repos/StockOne19/server-app \
+            -w "\nHTTP Status: %{http_code}\n"
 
       - name: Trigger deployment
         uses: peter-evans/repository-dispatch@v3
