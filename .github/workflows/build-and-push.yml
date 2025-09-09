@@ -87,6 +87,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Trigger deployment
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            https://api.github.com/repos/StockOne19/deploy/dispatches \
+            -d '{
+              "event_type": "api-server-updated",
+              "client_payload": {
+                "service": "data-server",
+                "image_tag": "${{ steps.image-info.outputs.tag }}",
+                "commit_sha": "${{ github.sha }}"
+              }
+            }' || echo "Request failed with status $?"
+
   trigger-deployment:
     needs: build-and-push
     runs-on: ubuntu-latest
@@ -97,6 +113,25 @@ jobs:
         run: |
           FIRST_TAG=$(echo '${{ needs.build-and-push.outputs.image-tag }}' | head -1)
           echo "tag=${FIRST_TAG}" >> $GITHUB_OUTPUT
+
+      - name: Test token basic access
+        run: |
+          echo "Testing basic API access..."
+            curl -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
+            https://api.github.com/user \
+            -w "\nHTTP Status: %{http_code}\n"
+          echo "Testing target repo access..."
+            curl -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
+            https://api.github.com/repos/StockOne19/deploy \
+            -w "\nHTTP Status: %{http_code}\n"
+          echo "Testing target repo access..."
+            curl -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
+            https://api.github.com/repos/StockOne19/stock-app \
+            -w "\nHTTP Status: %{http_code}\n"
+          echo "Testing target repo access..."
+            curl -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
+            https://api.github.com/repos/StockOne19/server-app \
+            -w "\nHTTP Status: %{http_code}\n"
 
       - name: Trigger deployment
         uses: peter-evans/repository-dispatch@v3
