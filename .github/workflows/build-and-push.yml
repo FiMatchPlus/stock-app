@@ -114,6 +114,17 @@ jobs:
           FIRST_TAG=$(echo '${{ needs.build-and-push.outputs.image-tag }}' | head -1)
           echo "tag=${FIRST_TAG}" >> $GITHUB_OUTPUT
 
+      - name: Test token basic access
+        run: |
+          echo "Testing basic API access..."
+            curl -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
+            https://api.github.com/user \
+            -w "\nHTTP Status: %{http_code}\n"
+          echo "Testing target repo access..."
+          curl -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
+          https://api.github.com/repos/StockOne19/deploy \
+          -w "\nHTTP Status: %{http_code}\n"
+
       - name: Trigger deployment
         uses: peter-evans/repository-dispatch@v3
         with:
