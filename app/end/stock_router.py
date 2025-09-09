@@ -18,7 +18,7 @@ from app.services.stock_price_service import StockPriceService
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
-router = APIRouter(prefix="/engine/stock-price", tags=["stock-price"])
+router = APIRouter(prefix="/stock-price", tags=["stock-price"])
 
 
 @router.post(
