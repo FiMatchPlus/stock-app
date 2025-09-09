@@ -10,7 +10,6 @@ alembic==1.12.1
 
 # Redis
 redis==5.0.1
-aioredis==2.0.1
 
 # HTTP 클라이언트
 httpx==0.25.2

@@ -3,7 +3,7 @@
 import json
 from typing import Any, Optional, Dict, List
 from datetime import datetime, timedelta
-import aioredis
+import redis.asyncio as redis
 from app.config import settings
 
 
@@ -12,12 +12,13 @@ class RedisClient:
     
     def __init__(self, redis_url: str):
         self.redis_url = redis_url
-        self._redis: Optional[aioredis.Redis] = None
+        self._redis: Optional[redis.Redis] = None
     
     async def connect(self):
         """Redis 연결"""
         if not self._redis:
-            self._redis = await aioredis.from_url(
+            # redis.asyncio.from_url is synchronous and returns an async Redis client
+            self._redis = redis.from_url(
                 self.redis_url,
                 encoding="utf-8",
                 decode_responses=True,
@@ -28,7 +29,12 @@ class RedisClient:
     async def disconnect(self):
         """Redis 연결 해제"""
         if self._redis:
-            await self._redis.close()
+            # In redis-py asyncio, aclose is the async close method
+            try:
+                await self._redis.aclose()  # type: ignore[attr-defined]
+            except AttributeError:
+                # Fallback for older redis versions
+                await self._redis.close()
             self._redis = None
     
     async def get(self, key: str) -> Optional[str]:
