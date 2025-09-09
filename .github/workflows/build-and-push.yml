@@ -87,6 +87,22 @@ jobs:
           cache-from: type=gha
           cache-to: type=gha,mode=max
 
+      - name: Trigger deployment
+        run: |
+          curl -X POST \
+            -H "Authorization: token ${{ secrets.DEPLOYMENT_TOKEN }}" \
+            -H "Accept: application/vnd.github.v3+json" \
+            -H "Content-Type: application/json" \
+            https://api.github.com/repos/StockOne19/deploy/dispatches \
+            -d '{
+              "event_type": "api-server-updated",
+              "client_payload": {
+                "service": "data-server",
+                "image_tag": "${{ steps.image-info.outputs.tag }}",
+                "commit_sha": "${{ github.sha }}"
+              }
+            }' || echo "Request failed with status $?"
+
   trigger-deployment:
     needs: build-and-push
     runs-on: ubuntu-latest
