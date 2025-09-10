@@ -103,7 +103,7 @@ class ParallelProcessingService:
             # 종목별로 그룹화
             results = []
             
-            for symbol, group in df.groupby('stock_id'):
+            for symbol, group in df.groupby('stock_code'):
                 # 기본 통계 계산
                 prices = group['close_price'].astype(float)
                 volumes = group['volume'].astype(int)
@@ -266,7 +266,7 @@ class ParallelProcessingService:
             # 피벗 테이블 생성 (종목별 가격 시계열)
             pivot_df = df.pivot_table(
                 index='timestamp',
-                columns='stock_id',
+                columns='stock_code',
                 values='close_price',
                 aggfunc='mean'
             )
@@ -308,7 +308,7 @@ class ParallelProcessingService:
             df = pd.DataFrame(stock_data)
             results = []
             
-            for symbol, group in df.groupby('stock_id'):
+            for symbol, group in df.groupby('stock_code'):
                 # 시간순 정렬
                 group = group.sort_values('timestamp')
                 

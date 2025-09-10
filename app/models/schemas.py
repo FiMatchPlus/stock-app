@@ -1,9 +1,15 @@
 """Pydantic 스키마 정의"""
 
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from decimal import Decimal
 from typing import Optional, List, Dict, Any
-from pydantic import BaseModel, Field, validator
+from pydantic import BaseModel, Field, validator, field_validator
+
+# 한국 시간대 설정
+KST = timezone(timedelta(hours=9))
+
+def get_kst_now():
+    return datetime.now(KST)
 
 
 class StockCreate(BaseModel):
@@ -23,8 +29,9 @@ class StockCreate(BaseModel):
     industry_code: Optional[int] = Field(None, description="표준산업분류코드")
     industry_name: Optional[str] = Field(None, max_length=100, description="표준산업분류코드명")
     type: Optional[str] = Field(None, max_length=50, description="상품종류")
-    
-    @validator('is_active')
+
+    @field_validator('is_active')
+    @classmethod
     def validate_is_active(cls, v):
         if v not in ['Y', 'N']:
             raise ValueError('is_active must be Y or N')
@@ -50,15 +57,15 @@ class StockResponse(BaseModel):
     industry_name: Optional[str]
     type: Optional[str]
     created_at: datetime
-    
+
     class Config:
         from_attributes = True
 
 
 class StockPriceCreate(BaseModel):
     """주가 데이터 생성 스키마"""
-    stock_id: str = Field(..., max_length=10, description="종목코드")
-    timestamp: datetime = Field(..., description="시간")
+    stock_code: str = Field(..., max_length=10, description="종목코드")
+    timestamp: datetime = Field(..., description="시간", alias="datetime")
     interval_unit: str = Field(..., max_length=5, description="시간간격")
     open_price: Decimal = Field(..., ge=0, description="시가")
     high_price: Decimal = Field(..., ge=0, description="고가")
@@ -66,8 +73,9 @@ class StockPriceCreate(BaseModel):
     close_price: Decimal = Field(..., ge=0, description="종가")
     volume: int = Field(..., ge=0, description="거래량")
     change_amount: Decimal = Field(..., description="전일대비")
-    
-    @validator('interval_unit')
+
+    @field_validator('interval_unit')
+    @classmethod
     def validate_interval_unit(cls, v):
         if v not in ['1m', '1d', '1W', '1Y']:
             raise ValueError('interval_unit must be one of: 1m, 1d, 1W, 1Y')
@@ -77,8 +85,8 @@ class StockPriceCreate(BaseModel):
 class StockPriceResponse(BaseModel):
     """주가 데이터 응답 스키마"""
     id: int
-    stock_id: str
-    timestamp: datetime
+    stock_code: str
+    timestamp: datetime = Field(..., alias="datetime")
     interval_unit: str
     open_price: Decimal
     high_price: Decimal
@@ -87,7 +95,7 @@ class StockPriceResponse(BaseModel):
     volume: int
     change_amount: Decimal
     change_rate: Decimal
-    
+
     class Config:
         from_attributes = True
 
@@ -98,8 +106,9 @@ class StockPriceCollectionRequest(BaseModel):
     interval: str = Field(default="1d", description="시간간격")
     start_date: Optional[datetime] = Field(None, description="시작일")
     end_date: Optional[datetime] = Field(None, description="종료일")
-    
-    @validator('interval')
+
+    @field_validator('interval')
+    @classmethod
     def validate_interval(cls, v):
         if v not in ['1m', '1d', '1W', '1Y']:
             raise ValueError('interval must be one of: 1m, 1d, 1W, 1Y')
@@ -135,12 +144,12 @@ class WebSocketMessage(BaseModel):
     type: str = Field(..., description="메시지 타입")
     symbol: Optional[str] = Field(None, description="종목코드")
     data: Optional[Dict[str, Any]] = Field(None, description="데이터")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="타임스탬프")
+    timestamp: datetime = Field(default_factory=get_kst_now, description="타임스탬프")
 
 
 class ErrorResponse(BaseModel):
     """에러 응답 스키마"""
     error: str = Field(..., description="에러 메시지")
     detail: Optional[str] = Field(None, description="상세 에러 정보")
-    timestamp: datetime = Field(default_factory=datetime.utcnow, description="에러 발생 시간")
+    timestamp: datetime = Field(default_factory=get_kst_now, description="에러 발생 시간")
 
