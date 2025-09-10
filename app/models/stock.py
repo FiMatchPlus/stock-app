@@ -33,11 +33,5 @@ class StockPrice(Base):
     low_price = Column(Float, nullable=False)
     close_price = Column(Float, nullable=False)
     volume = Column(Integer, nullable=False, default=0)
-
-    
-    # 인덱스 설정
-    __table_args__ = (
-        Index('idx_stock_code_datetime', 'stock_code', 'datetime'),
-        Index('idx_stock_code_interval', 'stock_code', 'interval_unit'),
-        Index('idx_datetime_interval', 'datetime', 'interval_unit'),
-    )
+    change_amount = Column(Float, nullable=False)
+    change_rate = Column(Float, nullable=False)

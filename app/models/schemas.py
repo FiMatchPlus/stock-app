@@ -152,4 +152,3 @@ class ErrorResponse(BaseModel):
     error: str = Field(..., description="에러 메시지")
     detail: Optional[str] = Field(None, description="상세 에러 정보")
     timestamp: datetime = Field(default_factory=get_kst_now, description="에러 발생 시간")
-
