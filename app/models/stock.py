@@ -20,7 +20,6 @@ class Stock(Base):
     sector = Column(String(50), nullable=True)
     industry = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=get_kst_now)
-    updated_at = Column(DateTime, default=get_kst_now, onupdate=get_kst_now)
 
 class StockPrice(Base):
     __tablename__ = "stock_prices"
@@ -34,8 +33,7 @@ class StockPrice(Base):
     low_price = Column(Float, nullable=False)
     close_price = Column(Float, nullable=False)
     volume = Column(Integer, nullable=False, default=0)
-    created_at = Column(DateTime, default=get_kst_now)
-    updated_at = Column(DateTime, default=get_kst_now, onupdate=get_kst_now)
+
     
     # 인덱스 설정
     __table_args__ = (
