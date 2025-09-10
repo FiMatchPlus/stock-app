@@ -25,7 +25,7 @@ class StockPriceService:
     async def create_stock_price(self, price_data: StockPriceCreate) -> StockPriceResponse:
         """주가 데이터 생성"""
         try:
-            price_dict = price_data.model_dump()
+            price_dict = price_data.model_dump(by_alias=True)
             price = await self.stock_price_repo.create(price_dict)
             
             logger.info(
@@ -35,7 +35,7 @@ class StockPriceService:
                 datetime=price.datetime
             )
             
-            return StockPriceResponse.model_validate(price)
+            return StockPriceResponse.model_validate(price, from_attributes=True)
         
         except Exception as e:
             logger.error(
@@ -57,7 +57,7 @@ class StockPriceService:
                 datetime=price.datetime
             )
             
-            return StockPriceResponse.model_validate(price)
+            return StockPriceResponse.model_validate(price, from_attributes=True)
         
         except Exception as e:
             logger.error(
@@ -125,7 +125,7 @@ class StockPriceService:
             price = await self.stock_price_repo.get_latest_price(stock_code, interval_unit)
             
             if price:
-                return StockPriceResponse.model_validate(price)
+                return StockPriceResponse.model_validate(price, from_attributes=True)
             
             return None
         

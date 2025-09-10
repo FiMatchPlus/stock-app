@@ -26,3 +26,4 @@ def get_logger(name: str = "stock_server"):
     
     return structlog.get_logger(name)
 
+

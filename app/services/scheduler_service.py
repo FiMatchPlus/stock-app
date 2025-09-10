@@ -80,7 +80,11 @@ class SchedulerService:
                 logger.info(f"총 {len(stock_codes)}개 종목의 데이터를 크롤링합니다.")
                 
                 # 여러 종목 크롤링 (서비스 기본 규칙: 목표일 기본 어제)
-                stock_prices = await naver_crawling_service.crawl_multiple_stocks(stock_codes)
+                # 동시 50개로 처리하여 전체 시간을 단축
+                stock_prices = await naver_crawling_service.crawl_multiple_stocks_concurrent(
+                    stock_codes=stock_codes,
+                    concurrency=50
+                )
                 
                 if not stock_prices:
                     logger.warning("크롤링된 데이터가 없습니다.")
@@ -139,8 +143,11 @@ class SchedulerService:
                 if not stock_codes:
                     return {"success": False, "message": "활성화된 종목이 없습니다."}
                 
-                # 크롤링 실행
-                stock_prices = await naver_crawling_service.crawl_multiple_stocks(stock_codes)
+                # 크롤링 실행 (동시 50개 처리)
+                stock_prices = await naver_crawling_service.crawl_multiple_stocks_concurrent(
+                    stock_codes=stock_codes,
+                    concurrency=50
+                )
                 
                 if not stock_prices:
                     return {"success": False, "message": "크롤링된 데이터가 없습니다."}

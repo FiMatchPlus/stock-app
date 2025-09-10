@@ -323,3 +323,4 @@ async def get_cache_service() -> CacheService:
     redis_client = await get_redis_client()
     return CacheService(redis_client)
 
+

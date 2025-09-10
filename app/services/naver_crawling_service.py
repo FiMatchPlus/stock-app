@@ -234,6 +234,7 @@ class NaverCrawlingService:
     async def crawl_stock_data(self, stock_code: str, target_date: Optional[datetime] = None) -> Optional[StockPrice]:
         """특정 종목의 목표일 데이터 크롤링"""
         try:
+            start_ts = datetime.now()
             # URL 구성
             url = f"{self.base_url}?code={stock_code}"
             
@@ -245,66 +246,80 @@ class NaverCrawlingService:
             # HTML 파싱 (목표일 검색)
             data = self._parse_stock_data(html, stock_code, target_date)
             if not data:
-                logger.warning(f"데이터 파싱 실패: {stock_code}")
+                duration_ms = int((datetime.now() - start_ts).total_seconds() * 1000)
+                logger.warning(
+                    "Crawl failed - parse returned no data",
+                    stock_code=stock_code,
+                    target_date=(target_date.date() if isinstance(target_date, datetime) else target_date) if target_date else "yesterday",
+                    duration_ms=duration_ms,
+                )
                 return None
             
             # StockPrice 객체로 변환
             stock_price = self._convert_to_stock_price(data)
             if not stock_price:
-                logger.warning(f"StockPrice 변환 실패: {stock_code}")
+                duration_ms = int((datetime.now() - start_ts).total_seconds() * 1000)
+                logger.warning(
+                    "Crawl failed - conversion to StockPrice returned None",
+                    stock_code=stock_code,
+                    duration_ms=duration_ms,
+                )
                 return None
             
-            logger.info(f"주식 데이터 크롤링 완료: {stock_code}")
+            duration_ms = int((datetime.now() - start_ts).total_seconds() * 1000)
+            logger.info(
+                "Crawl succeeded",
+                stock_code=stock_code,
+                interval_unit=stock_price.interval_unit,
+                date=str(stock_price.datetime.date()),
+                duration_ms=duration_ms,
+            )
             return stock_price
             
         except Exception as e:
-            logger.error(f"주식 데이터 크롤링 오류: {e}, stock_code: {stock_code}")
+            logger.error(
+                "Crawl exception",
+                error=str(e),
+                stock_code=stock_code,
+            )
             return None
     
-    async def crawl_multiple_stocks(self, stock_codes: List[str], target_date: Optional[datetime] = None) -> List[StockPrice]:
-        """여러 종목의 목표일 데이터 크롤링 (순차 처리)"""
-        results = []
-        
-        for stock_code in stock_codes:
-            try:
-                stock_price = await self.crawl_stock_data(stock_code, target_date)
-                if stock_price:
-                    results.append(stock_price)
-                
-                # 서버 부하 방지를 위한 딜레이
-                await asyncio.sleep(0.5)
-                
-            except Exception as e:
-                logger.error(f"종목 크롤링 오류: {e}, stock_code: {stock_code}")
-                continue
-        
-        logger.info(f"총 {len(results)}개 종목의 데이터를 크롤링했습니다.")
-        return results
+    
 
-    async def crawl_multiple_stocks_batch(self, stock_codes: List[str], batch_size: int = 10, target_date: Optional[datetime] = None) -> List[StockPrice]:
-        """여러 종목의 목표일 데이터 크롤링 (배치 처리)"""
-        results = []
-        
-        for i in range(0, len(stock_codes), batch_size):
-            batch = stock_codes[i:i + batch_size]
-            logger.info(f"배치 크롤링 진행: {i+1}-{min(i+batch_size, len(stock_codes))}/{len(stock_codes)}")
-            
-            # 배치 내에서 병렬 크롤링
-            tasks = [self.crawl_stock_data(code, target_date) for code in batch]
-            batch_results = await asyncio.gather(*tasks, return_exceptions=True)
-            
-            # 결과 수집
-            for result in batch_results:
-                if isinstance(result, StockPrice):
-                    results.append(result)
-                elif isinstance(result, Exception):
-                    logger.error(f"크롤링 오류: {result}")
-            
-            # 배치 간 딜레이 (서버 부하 방지)
-            if i + batch_size < len(stock_codes):
-                await asyncio.sleep(1.0)
-        
-        logger.info(f"배치 크롤링 완료: 총 {len(results)}개 종목의 데이터를 크롤링했습니다.")
+    async def crawl_multiple_stocks_concurrent(
+        self,
+        stock_codes: List[str],
+        concurrency: int = 50,
+        target_date: Optional[datetime] = None
+    ) -> List[StockPrice]:
+        """여러 종목을 동시 처리(동시 최대 concurrency)로 크롤링"""
+        if not stock_codes:
+            return []
+
+        sem = asyncio.Semaphore(concurrency)
+        results: List[StockPrice] = []
+
+        async def worker(code: str) -> None:
+            async with sem:
+                res = await self.crawl_stock_data(code, target_date)
+                if isinstance(res, StockPrice):
+                    results.append(res)
+
+        logger.info(
+            "Concurrent crawl started",
+            total_symbols=len(stock_codes),
+            concurrency=concurrency,
+        )
+
+        tasks = [asyncio.create_task(worker(code)) for code in stock_codes]
+        await asyncio.gather(*tasks, return_exceptions=True)
+
+        logger.info(
+            "Concurrent crawl completed",
+            total_symbols=len(stock_codes),
+            succeeded=len(results),
+            failed=len(stock_codes) - len(results),
+        )
         return results
     
 

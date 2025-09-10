@@ -254,7 +254,7 @@ async def get_latest_stock_price(
         if not price:
             raise HTTPException(
                 status_code=404,
-                detail=f"No price data found for symbol {symbol}"
+                detail=f"No price data found for symbol {symbol} with interval {interval}"
             )
         
         logger.info(
