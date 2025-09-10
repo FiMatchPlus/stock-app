@@ -17,7 +17,7 @@ class StockPriceRepository(BaseRepository[StockPrice]):
     
     async def get_by_stock_and_interval(
         self, 
-        stock_id: str, 
+        stock_code: str, 
         interval_unit: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
@@ -27,36 +27,36 @@ class StockPriceRepository(BaseRepository[StockPrice]):
         """종목별, 간격별 주가 데이터 조회"""
         query = select(StockPrice).where(
             and_(
-                StockPrice.stock_id == stock_id,
+                StockPrice.stock_code == stock_code,
                 StockPrice.interval_unit == interval_unit
             )
         )
         
         if start_date:
-            query = query.where(StockPrice.timestamp >= start_date)
+            query = query.where(StockPrice.datetime >= start_date)
         if end_date:
-            query = query.where(StockPrice.timestamp <= end_date)
+            query = query.where(StockPrice.datetime <= end_date)
         
-        query = query.order_by(desc(StockPrice.timestamp)).offset(offset).limit(limit)
+        query = query.order_by(desc(StockPrice.datetime)).offset(offset).limit(limit)
         
         result = await self.session.execute(query)
         return result.scalars().all()
     
-    async def get_latest_price(self, stock_id: str, interval_unit: str) -> Optional[StockPrice]:
+    async def get_latest_price(self, stock_code: str, interval_unit: str) -> Optional[StockPrice]:
         """최신 주가 데이터 조회"""
         query = select(StockPrice).where(
             and_(
-                StockPrice.stock_id == stock_id,
+                StockPrice.stock_code == stock_code,
                 StockPrice.interval_unit == interval_unit
             )
-        ).order_by(desc(StockPrice.timestamp)).limit(1)
+        ).order_by(desc(StockPrice.datetime)).limit(1)
         
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
     
     async def get_price_range(
         self,
-        stock_id: str,
+        stock_code: str,
         interval_unit: str,
         start_date: datetime,
         end_date: datetime
@@ -67,10 +67,10 @@ class StockPriceRepository(BaseRepository[StockPrice]):
             func.max(StockPrice.high_price)
         ).where(
             and_(
-                StockPrice.stock_id == stock_id,
+                StockPrice.stock_code == stock_code,
                 StockPrice.interval_unit == interval_unit,
-                StockPrice.timestamp >= start_date,
-                StockPrice.timestamp <= end_date
+                StockPrice.datetime >= start_date,
+                StockPrice.datetime <= end_date
             )
         )
         
@@ -80,7 +80,7 @@ class StockPriceRepository(BaseRepository[StockPrice]):
     
     async def get_volume_sum(
         self,
-        stock_id: str,
+        stock_code: str,
         interval_unit: str,
         start_date: datetime,
         end_date: datetime
@@ -88,10 +88,10 @@ class StockPriceRepository(BaseRepository[StockPrice]):
         """기간별 총 거래량 조회"""
         query = select(func.sum(StockPrice.volume)).where(
             and_(
-                StockPrice.stock_id == stock_id,
+                StockPrice.stock_code == stock_code,
                 StockPrice.interval_unit == interval_unit,
-                StockPrice.timestamp >= start_date,
-                StockPrice.timestamp <= end_date
+                StockPrice.datetime >= start_date,
+                StockPrice.datetime <= end_date
             )
         )
         
@@ -104,9 +104,9 @@ class StockPriceRepository(BaseRepository[StockPrice]):
         existing_price = await self.session.execute(
             select(StockPrice).where(
                 and_(
-                    StockPrice.stock_id == price_data["stock_id"],
+                    StockPrice.stock_code == price_data["stock_code"],
                     StockPrice.interval_unit == price_data["interval_unit"],
-                    StockPrice.timestamp == price_data["timestamp"]
+                    StockPrice.datetime == price_data["datetime"]
                 )
             )
         )
@@ -136,7 +136,7 @@ class StockPriceRepository(BaseRepository[StockPrice]):
     
     async def get_prices_with_stock_info(
         self,
-        stock_id: str,
+        stock_code: str,
         interval_unit: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
@@ -145,47 +145,47 @@ class StockPriceRepository(BaseRepository[StockPrice]):
     ) -> List[Tuple[StockPrice, Stock]]:
         """종목 정보와 함께 주가 데이터 조회"""
         query = select(StockPrice, Stock).join(
-            Stock, StockPrice.stock_id == Stock.ticker
+            Stock, StockPrice.stock_code == Stock.ticker
         ).where(
             and_(
-                StockPrice.stock_id == stock_id,
+                StockPrice.stock_code == stock_code,
                 StockPrice.interval_unit == interval_unit
             )
         )
         
         if start_date:
-            query = query.where(StockPrice.timestamp >= start_date)
+            query = query.where(StockPrice.datetime >= start_date)
         if end_date:
-            query = query.where(StockPrice.timestamp <= end_date)
+            query = query.where(StockPrice.datetime <= end_date)
         
-        query = query.order_by(desc(StockPrice.timestamp)).offset(offset).limit(limit)
+        query = query.order_by(desc(StockPrice.datetime)).offset(offset).limit(limit)
         
         result = await self.session.execute(query)
         return result.all()
     
     async def get_multiple_stocks_latest_prices(
         self, 
-        stock_ids: List[str], 
+        stock_codes: List[str], 
         interval_unit: str
     ) -> List[StockPrice]:
         """여러 종목의 최신 주가 조회"""
         # 서브쿼리로 각 종목별 최신 시간 조회
         subquery = select(
-            StockPrice.stock_id,
-            func.max(StockPrice.timestamp).label("max_timestamp")
+            StockPrice.stock_code,
+            func.max(StockPrice.datetime).label("max_datetime")
         ).where(
             and_(
-                StockPrice.stock_id.in_(stock_ids),
+                StockPrice.stock_code.in_(stock_codes),
                 StockPrice.interval_unit == interval_unit
             )
-        ).group_by(StockPrice.stock_id).subquery()
+        ).group_by(StockPrice.stock_code).subquery()
         
         # 메인 쿼리로 최신 데이터 조회
         query = select(StockPrice).join(
             subquery,
             and_(
-                StockPrice.stock_id == subquery.c.stock_id,
-                StockPrice.timestamp == subquery.c.max_timestamp
+                StockPrice.stock_code == subquery.c.stock_code,
+                StockPrice.datetime == subquery.c.max_datetime
             )
         )
         
@@ -194,7 +194,7 @@ class StockPriceRepository(BaseRepository[StockPrice]):
     
     async def get_price_statistics(
         self,
-        stock_id: str,
+        stock_code: str,
         interval_unit: str,
         start_date: datetime,
         end_date: datetime
@@ -209,10 +209,10 @@ class StockPriceRepository(BaseRepository[StockPrice]):
             func.stddev(StockPrice.close_price).label("volatility")
         ).where(
             and_(
-                StockPrice.stock_id == stock_id,
+                StockPrice.stock_code == stock_code,
                 StockPrice.interval_unit == interval_unit,
-                StockPrice.timestamp >= start_date,
-                StockPrice.timestamp <= end_date
+                StockPrice.datetime >= start_date,
+                StockPrice.datetime <= end_date
             )
         )
         

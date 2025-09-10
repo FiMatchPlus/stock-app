@@ -296,7 +296,7 @@ async def get_stock_price_statistics(
         
         # 통계 정보 조회
         stats = await stock_price_service.get_price_statistics(
-            stock_id=symbol,
+            stock_code=symbol,
             interval_unit=interval,
             start_date=start_date,
             end_date=end_date

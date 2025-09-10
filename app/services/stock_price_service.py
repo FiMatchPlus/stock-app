@@ -31,8 +31,8 @@ class StockPriceService:
             logger.info(
                 "Stock price created",
                 price_id=price.id,
-                stock_id=price.stock_id,
-                timestamp=price.timestamp
+                stock_code=price.stock_code,
+                datetime=price.datetime
             )
             
             return StockPriceResponse.model_validate(price)
@@ -41,7 +41,7 @@ class StockPriceService:
             logger.error(
                 "Failed to create stock price",
                 error=str(e),
-                stock_id=price_data.stock_id
+                stock_code=price_data.stock_code
             )
             raise
     
@@ -53,8 +53,8 @@ class StockPriceService:
             logger.info(
                 "Stock price upserted",
                 price_id=price.id,
-                stock_id=price.stock_id,
-                timestamp=price.timestamp
+                stock_code=price.stock_code,
+                datetime=price.datetime
             )
             
             return StockPriceResponse.model_validate(price)
@@ -63,7 +63,7 @@ class StockPriceService:
             logger.error(
                 "Failed to upsert stock price",
                 error=str(e),
-                stock_id=price_data.get("stock_id")
+                stock_code=price_data.get("stock_code")
             )
             raise
     
@@ -75,7 +75,7 @@ class StockPriceService:
             logger.info(
                 "Bulk stock prices upserted",
                 count=len(prices),
-                stock_ids=list(set(price.stock_id for price in prices))
+                stock_codes=list(set(price.stock_code for price in prices))
             )
             
             return [StockPriceResponse.model_validate(price) for price in prices]
@@ -86,7 +86,7 @@ class StockPriceService:
     
     async def get_stock_prices(
         self, 
-        stock_id: str, 
+        stock_code: str, 
         interval_unit: str,
         start_date: Optional[datetime] = None,
         end_date: Optional[datetime] = None,
@@ -96,7 +96,7 @@ class StockPriceService:
         """주가 데이터 조회"""
         try:
             prices = await self.stock_price_repo.get_by_stock_and_interval(
-                stock_id=stock_id,
+                stock_code=stock_code,
                 interval_unit=interval_unit,
                 start_date=start_date,
                 end_date=end_date,
@@ -110,19 +110,19 @@ class StockPriceService:
             logger.error(
                 "Failed to get stock prices",
                 error=str(e),
-                stock_id=stock_id,
+                stock_code=stock_code,
                 interval_unit=interval_unit
             )
             raise
     
     async def get_latest_stock_price(
         self, 
-        stock_id: str, 
+        stock_code: str, 
         interval_unit: str
     ) -> Optional[StockPriceResponse]:
         """최신 주가 데이터 조회"""
         try:
-            price = await self.stock_price_repo.get_latest_price(stock_id, interval_unit)
+            price = await self.stock_price_repo.get_latest_price(stock_code, interval_unit)
             
             if price:
                 return StockPriceResponse.model_validate(price)
@@ -133,20 +133,20 @@ class StockPriceService:
             logger.error(
                 "Failed to get latest stock price",
                 error=str(e),
-                stock_id=stock_id,
+                stock_code=stock_code,
                 interval_unit=interval_unit
             )
             raise
     
     async def get_multiple_stocks_latest_prices(
         self, 
-        stock_ids: List[str], 
+        stock_codes: List[str], 
         interval_unit: str
     ) -> List[StockPriceResponse]:
         """여러 종목의 최신 주가 조회"""
         try:
             prices = await self.stock_price_repo.get_multiple_stocks_latest_prices(
-                stock_ids, interval_unit
+                stock_codes, interval_unit
             )
             
             return [StockPriceResponse.model_validate(price) for price in prices]
@@ -155,14 +155,14 @@ class StockPriceService:
             logger.error(
                 "Failed to get multiple stocks latest prices",
                 error=str(e),
-                stock_ids=stock_ids,
+                stock_codes=stock_codes,
                 interval_unit=interval_unit
             )
             raise
     
     async def get_price_statistics(
         self,
-        stock_id: str,
+        stock_code: str,
         interval_unit: str,
         start_date: datetime,
         end_date: datetime
@@ -170,7 +170,7 @@ class StockPriceService:
         """주가 통계 정보 조회"""
         try:
             stats = await self.stock_price_repo.get_price_statistics(
-                stock_id=stock_id,
+                stock_code=stock_code,
                 interval_unit=interval_unit,
                 start_date=start_date,
                 end_date=end_date
@@ -182,7 +182,7 @@ class StockPriceService:
             logger.error(
                 "Failed to get price statistics",
                 error=str(e),
-                stock_id=stock_id,
+                stock_code=stock_code,
                 interval_unit=interval_unit
             )
             raise
@@ -244,7 +244,7 @@ class StockPriceService:
         """주가 데이터 조회 (쿼리)"""
         try:
             prices = await self.get_stock_prices(
-                stock_id=query_request.symbol,
+                stock_code=query_request.symbol,
                 interval_unit=query_request.interval or "1d",
                 start_date=query_request.start_date,
                 end_date=query_request.end_date,
