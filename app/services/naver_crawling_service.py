@@ -223,6 +223,7 @@ class NaverCrawlingService:
                 close_price=Decimal(data['close_price']),
                 volume=int(data['volume']),
                 change_amount=change_amount
+                # change_rate는 데이터베이스에서 자동 생성되므로 제외
             )
             
             return stock_price

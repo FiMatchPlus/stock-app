@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, DateTime, Float, Index
+from sqlalchemy import Column, Integer, String, DateTime, Float, Index, Computed
 from sqlalchemy.ext.declarative import declarative_base
 from datetime import datetime, timezone, timedelta
 
@@ -34,4 +34,4 @@ class StockPrice(Base):
     close_price = Column(Float, nullable=False)
     volume = Column(Integer, nullable=False, default=0)
     change_amount = Column(Float, nullable=False)
-    change_rate = Column(Float, nullable=False)
+    change_rate = Column(Float, Computed('change_amount / (close_price - change_amount) * 100'))  # 자동 계산 컬럼
