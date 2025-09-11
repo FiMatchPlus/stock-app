@@ -12,7 +12,7 @@ from apscheduler.triggers.cron import CronTrigger
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.models.database import get_async_session
+from app.models.database import AsyncSessionLocal
 from app.models.stock import Stock, StockPrice
 from app.services.naver_crawling_service import naver_crawling_service
 from app.utils.logger import get_logger
@@ -66,7 +66,7 @@ class SchedulerService:
         
         try:
             # 데이터베이스 세션 생성
-            async with get_async_session() as db:
+            async with AsyncSessionLocal() as db:
                 # stocks 테이블에서 모든 활성화된 종목의 ticker 조회
                 result = await db.execute(
                     select(Stock.ticker).where(Stock.is_active == 'Y')
@@ -132,7 +132,7 @@ class SchedulerService:
         logger.info("수동 크롤링을 시작합니다.")
         
         try:
-            async with get_async_session() as db:
+            async with AsyncSessionLocal() as db:
                 if stock_codes is None:
                     # stocks 테이블에서 모든 활성화된 종목의 ticker 조회
                     result = await db.execute(
