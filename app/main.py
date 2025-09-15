@@ -10,10 +10,9 @@ import time
 
 from app.config import settings
 from app.models.database import engine, Base
-from app.end import stock_router, websocket_router, backtest_router, embedding_router
+from app.end import stock_router, websocket_router, backtest_router
 from app.services.parallel_processing_service import ParallelProcessingService
 from app.services.scheduler_service import scheduler_service
-from app.services.embedding_scheduler_service import embedding_scheduler
 from app.utils.redis_client import close_redis_client
 from app.utils.mongodb_client import mongodb_client, MONGODB_URL, MONGODB_DATABASE
 from app.utils.logger import get_logger, log_api_request
@@ -46,13 +45,7 @@ async def lifespan(app: FastAPI):
         logger.error("Failed to start scheduler service", error=str(e))
         raise
     
-    # 임베딩 스케줄러 시작
-    try:
-        embedding_scheduler.start()
-        logger.info("Embedding scheduler started successfully")
-    except Exception as e:
-        logger.error("Failed to start embedding scheduler", error=str(e))
-        # 임베딩 스케줄러 실패해도 서버는 계속 실행
+    # 임베딩 스케줄러 제거됨
     
     yield
     
@@ -66,12 +59,7 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         logger.error("Failed to stop scheduler service", error=str(e))
     
-    # 임베딩 스케줄러 중지
-    try:
-        embedding_scheduler.stop()
-        logger.info("Embedding scheduler stopped")
-    except Exception as e:
-        logger.error("Failed to stop embedding scheduler", error=str(e))
+    # 임베딩 스케줄러 제거됨
     
     # 병렬처리 서비스 정리
     try:
@@ -172,7 +160,7 @@ async def global_exception_handler(request, exc):
 app.include_router(stock_router)
 app.include_router(websocket_router)
 app.include_router(backtest_router)
-app.include_router(embedding_router)
+# 임베딩 라우터 제거됨
 
 
 # 헬스 체크 엔드포인트
@@ -324,58 +312,7 @@ async def stop_scheduler():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-# 임베딩 스케줄러 관련 엔드포인트
-@app.get("/embedding-scheduler/status", tags=["embedding-scheduler"])
-async def get_embedding_scheduler_status():
-    """임베딩 스케줄러 상태 조회"""
-    try:
-        status = embedding_scheduler.get_scheduler_status()
-        return {
-            "success": True,
-            "data": status
-        }
-    except Exception as e:
-        logger.error("Failed to get embedding scheduler status", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/embedding-scheduler/start", tags=["embedding-scheduler"])
-async def start_embedding_scheduler():
-    """임베딩 스케줄러 시작"""
-    try:
-        embedding_scheduler.start()
-        return {
-            "success": True,
-            "message": "Embedding scheduler started successfully"
-        }
-    except Exception as e:
-        logger.error("Failed to start embedding scheduler", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/embedding-scheduler/stop", tags=["embedding-scheduler"])
-async def stop_embedding_scheduler():
-    """임베딩 스케줄러 중지"""
-    try:
-        embedding_scheduler.stop()
-        return {
-            "success": True,
-            "message": "Embedding scheduler stopped successfully"
-        }
-    except Exception as e:
-        logger.error("Failed to stop embedding scheduler", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@app.post("/embedding-scheduler/manual-update", tags=["embedding-scheduler"])
-async def manual_embedding_update(symbols: List[str] = None):
-    """수동 임베딩 업데이트"""
-    try:
-        result = await embedding_scheduler.manual_update(symbols)
-        return result
-    except Exception as e:
-        logger.error("Failed to perform manual embedding update", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+## 임베딩 스케줄러 관련 엔드포인트 제거됨
 
 
 if __name__ == "__main__":
