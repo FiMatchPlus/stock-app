@@ -1,6 +1,7 @@
 """로깅 설정"""
 
 import structlog
+from datetime import datetime
 
 def get_logger(name: str = "stock_server"):
     """구조화된 로거 생성"""
@@ -25,5 +26,17 @@ def get_logger(name: str = "stock_server"):
     )
     
     return structlog.get_logger(name)
+
+def log_api_request(logger, method: str, url: str, **kwargs):
+    """API 요청 로그를 기록하는 헬퍼 함수"""
+    current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    logger.info(
+        "API Request",
+        method=method,
+        url=url,
+        timestamp=current_time,
+        **kwargs
+    )
+
 
 

@@ -2,10 +2,11 @@
 
 from contextlib import asynccontextmanager
 from datetime import datetime
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 import uvicorn
+import time
 
 from app.config import settings
 from app.models.database import engine, Base
@@ -13,7 +14,7 @@ from app.end import stock_router, websocket_router
 from app.services.parallel_processing_service import ParallelProcessingService
 from app.services.scheduler_service import scheduler_service
 from app.utils.redis_client import close_redis_client
-from app.utils.logger import get_logger
+from app.utils.logger import get_logger, log_api_request
 
 logger = get_logger(__name__)
 
@@ -80,6 +81,38 @@ app = FastAPI(
     docs_url="/docs" if settings.debug else None,
     redoc_url="/redoc" if settings.debug else None,
 )
+
+# API 요청 로깅 미들웨어
+@app.middleware("http")
+async def log_requests(request: Request, call_next):
+    """모든 API 요청을 로깅하는 미들웨어"""
+    start_time = time.time()
+    
+    # 요청 로깅
+    log_api_request(
+        logger,
+        method=request.method,
+        url=str(request.url),
+        client_ip=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        request_id=request.headers.get("x-request-id")
+    )
+    
+    # 요청 처리
+    response = await call_next(request)
+    
+    # 응답 로깅
+    process_time = time.time() - start_time
+    logger.info(
+        "API Response",
+        method=request.method,
+        url=str(request.url),
+        status_code=response.status_code,
+        process_time=f"{process_time:.3f}s",
+        request_id=request.headers.get("x-request-id")
+    )
+    
+    return response
 
 # CORS 미들웨어 설정
 app.add_middleware(
