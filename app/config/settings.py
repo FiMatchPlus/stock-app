@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     
     # Redis 설정
     redis_url: str = Field(..., description="Redis URL")
+    
+    # MongoDB 설정
+    mongodb_url: str = Field(default="mongodb://localhost:27017", description="MongoDB URL")
+    mongodb_database: str = Field(default="stockone19", description="MongoDB 데이터베이스 이름")
+    
+    # Elasticsearch 설정
+    elasticsearch_url: str = Field(default="http://localhost:9200", description="Elasticsearch URL")
+    elasticsearch_username: Optional[str] = Field(default=None, description="Elasticsearch 사용자명")
+    elasticsearch_password: Optional[str] = Field(default=None, description="Elasticsearch 비밀번호")
 
     # KIS API 설정
     kis_base_url: str = Field(default="https://openapi.koreainvestment.com:9443", description="한국투자증권 API 기본 URL")
