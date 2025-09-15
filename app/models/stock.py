@@ -19,6 +19,7 @@ class Stock(Base):
     market = Column(String(20), nullable=False)
     sector = Column(String(50), nullable=True)
     industry = Column(String(100), nullable=True)
+    is_active = Column(String(1), nullable=False, default='Y', index=True)
     created_at = Column(DateTime, default=get_kst_now)
 
 class StockPrice(Base):

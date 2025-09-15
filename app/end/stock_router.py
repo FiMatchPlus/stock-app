@@ -15,7 +15,7 @@ from app.models.schemas import (
 )
 from app.services.stock_service import StockService
 from app.services.stock_price_service import StockPriceService
-from app.utils.logger import get_logger
+from app.utils.logger import get_logger, log_api_request
 
 logger = get_logger(__name__)
 router = APIRouter(prefix="/stock-price", tags=["stock-price"])
@@ -35,6 +35,17 @@ async def collect_stock_prices_by_symbol(
     session: AsyncSession = Depends(get_async_session)
 ):
     """특정 종목의 주가 데이터 수집"""
+    # API 요청 로그
+    log_api_request(
+        logger, 
+        method="POST", 
+        url=f"/stock-price/collect/{symbol}",
+        symbol=symbol,
+        interval=interval,
+        start_date=start_date,
+        end_date=end_date
+    )
+    
     try:
         # 시간간격 검증
         if interval not in ["1Y", "1M", "1d", "1W"]:
@@ -92,6 +103,14 @@ async def collect_daily_prices_by_date(
     session: AsyncSession = Depends(get_async_session)
 ):
     """특정 날짜의 일봉 데이터 수집"""
+    # API 요청 로그
+    log_api_request(
+        logger, 
+        method="POST", 
+        url="/stock-price/collect",
+        date=date
+    )
+    
     try:
         # 서비스 초기화
         stock_price_service = StockPriceService(session)
@@ -198,6 +217,19 @@ async def get_stock_prices(
     session: AsyncSession = Depends(get_async_session)
 ):
     """주가 데이터 조회"""
+    # API 요청 로그
+    log_api_request(
+        logger, 
+        method="GET", 
+        url=f"/stock-price/{symbol}",
+        symbol=symbol,
+        interval=interval,
+        start_date=start_date,
+        end_date=end_date,
+        limit=limit,
+        offset=offset
+    )
+    
     try:
         # 서비스 초기화
         stock_price_service = StockPriceService(session)
