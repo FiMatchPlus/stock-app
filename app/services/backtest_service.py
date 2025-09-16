@@ -40,7 +40,8 @@ class BacktestService:
         self, 
         request: BacktestRequest, 
         session: AsyncSession,
-        portfolio_id: Optional[int] = None
+        portfolio_id: Optional[int] = None,
+        portfolio_name: Optional[str] = None
     ) -> BacktestResponse:
         """백테스트 실행"""
         start_time = time.time()
@@ -59,16 +60,16 @@ class BacktestService:
                 raise ValueError("No stock price data available for the given period")
             
             # 3. 백테스트 실행
-            portfolio_data, daily_returns = await self._execute_backtest(
+            portfolio_data, result_summary = await self._execute_backtest(
                 request, stock_prices
             )
             
             # 4. 성과 지표 계산
-            metrics = await self._calculate_metrics(daily_returns)
+            metrics = await self._calculate_metrics(result_summary)
             
             # 5. 데이터베이스 저장
             portfolio_snapshot = await self._save_portfolio_snapshot(
-                request, portfolio_data, session, portfolio_id
+                request, portfolio_data, session, portfolio_id, portfolio_name
             )
             
             # 6. MongoDB에 metrics 저장
@@ -88,6 +89,11 @@ class BacktestService:
             
             execution_time = time.time() - start_time
             
+            # execution_time을 데이터베이스에 업데이트
+            await self._update_portfolio_snapshot_execution_time(
+                session, portfolio_snapshot.id, execution_time
+            )
+            
             logger.info(f"Backtest completed successfully", 
                        execution_time=f"{execution_time:.3f}s",
                        portfolio_id=portfolio_snapshot.id)
@@ -95,7 +101,7 @@ class BacktestService:
             return BacktestResponse(
                 portfolio_snapshot=portfolio_snapshot,
                 metrics=metrics,
-                daily_returns=daily_returns,
+                result_summary=result_summary,
                 execution_time=execution_time
             )
             
@@ -219,7 +225,7 @@ class BacktestService:
         
         # 일별 데이터 생성
         portfolio_data = []
-        daily_returns = []
+        result_summary = []
         
         for i, (date, value) in enumerate(portfolio_values.items()):
             # 포트폴리오 데이터
@@ -229,26 +235,17 @@ class BacktestService:
                 'daily_return': float(portfolio_returns.iloc[i]) if i < len(portfolio_returns) else 0.0
             })
             
-            # 일별 수익률 데이터 (상세)
-            daily_return = {
+            # 결과 요약 데이터 (간소화)
+            summary_item = {
                 'date': date.isoformat(),
                 'portfolio_return': float(portfolio_returns.iloc[i]) if i < len(portfolio_returns) else 0.0,
                 'portfolio_value': float(value),
-                'holdings': {}
+                'sharpe_ratio': None  # 나중에 계산됨
             }
             
-            # 종목별 상세 정보
-            for stock_code in weights.keys():
-                if stock_code in price_pivot.columns and not pd.isna(price_pivot.loc[date, stock_code]):
-                    daily_return['holdings'][stock_code] = {
-                        'price': float(price_pivot.loc[date, stock_code]),
-                        'weight': weights[stock_code],
-                        'return': float(returns_pivot.loc[date, stock_code]) if stock_code in returns_pivot.columns and not pd.isna(returns_pivot.loc[date, stock_code]) else 0.0
-                    }
-            
-            daily_returns.append(daily_return)
+            result_summary.append(summary_item)
         
-        return portfolio_data, daily_returns
+        return portfolio_data, result_summary
     
     def _calculate_portfolio_returns(
         self, 
@@ -286,13 +283,13 @@ class BacktestService:
         
         return portfolio_values
     
-    async def _calculate_metrics(self, daily_returns: List[Dict[str, Any]]) -> BacktestMetrics:
+    async def _calculate_metrics(self, result_summary: List[Dict[str, Any]]) -> BacktestMetrics:
         """성과 지표 계산 (최적화된 버전)"""
-        if not daily_returns:
-            raise ValueError("No daily returns data available")
+        if not result_summary:
+            raise ValueError("No result summary data available")
         
         # 수익률 배열 추출
-        returns = np.array([dr['portfolio_return'] for dr in daily_returns])
+        returns = np.array([rs['portfolio_return'] for rs in result_summary])
         
         # 기본 통계량 계산
         total_return = (1 + returns).prod() - 1
@@ -409,7 +406,9 @@ class BacktestService:
         request: BacktestRequest, 
         portfolio_data: List[Dict[str, Any]], 
         session: AsyncSession,
-        portfolio_id: Optional[int] = None
+        portfolio_id: Optional[int] = None,
+        portfolio_name: Optional[str] = None,
+        execution_time: Optional[float] = None
     ) -> PortfolioSnapshotResponse:
         """포트폴리오 스냅샷 저장"""
         if not portfolio_data:
@@ -423,14 +422,16 @@ class BacktestService:
         final_data = portfolio_data[-1]
         base_value = Decimal(str(request.initial_capital))
         current_value = Decimal(str(final_data['portfolio_value']))
-        recorded_at = final_data['datetime']
         
         # 포트폴리오 스냅샷 생성
         portfolio_snapshot = PortfolioSnapshot(
             portfolio_id=portfolio_id,
+            # portfolio_name=portfolio_name,  # DB에 컬럼이 없음
             base_value=base_value,
             current_value=current_value,
-            recorded_at=recorded_at
+            start_at=request.start,
+            end_at=request.end,
+            execution_time=execution_time
         )
         
         session.add(portfolio_snapshot)
@@ -440,7 +441,7 @@ class BacktestService:
         for holding in request.holdings:
             # 해당 종목의 최종 가격 찾기
             stock_price = await self._get_final_stock_price(
-                holding.code, recorded_at, session
+                holding.code, request.end, session
             )
             
             if stock_price:
@@ -457,7 +458,7 @@ class BacktestService:
                     price=Decimal(str(stock_price.close_price)),
                     quantity=quantity,
                     value=holding_value,
-                    recorded_at=recorded_at
+                    recorded_at=request.end
                 )
                 
                 session.add(holding_snapshot)
@@ -468,9 +469,11 @@ class BacktestService:
         return PortfolioSnapshotResponse(
             id=portfolio_snapshot.id,
             portfolio_id=portfolio_snapshot.portfolio_id,
+            portfolio_name=portfolio_snapshot.portfolio_name,
             base_value=portfolio_snapshot.base_value,
             current_value=portfolio_snapshot.current_value,
-            recorded_at=portfolio_snapshot.recorded_at,
+            start_at=portfolio_snapshot.start_at,
+            end_at=portfolio_snapshot.end_at,
             created_at=portfolio_snapshot.created_at,
             metric_id=portfolio_snapshot.metric_id,
             holdings=[]
@@ -553,14 +556,14 @@ class BacktestService:
         if portfolio_id:
             conditions.append(PortfolioSnapshot.portfolio_id == portfolio_id)
         if start_date:
-            conditions.append(PortfolioSnapshot.recorded_at >= start_date)
+            conditions.append(PortfolioSnapshot.created_at >= start_date)
         if end_date:
-            conditions.append(PortfolioSnapshot.recorded_at <= end_date)
+            conditions.append(PortfolioSnapshot.created_at <= end_date)
         
         if conditions:
             query = query.where(and_(*conditions))
         
-        query = query.order_by(desc(PortfolioSnapshot.recorded_at))
+        query = query.order_by(desc(PortfolioSnapshot.created_at))
         query = query.offset(offset).limit(limit)
         
         result = await session.execute(query)
@@ -585,15 +588,43 @@ class BacktestService:
             response_snapshots.append(PortfolioSnapshotResponse(
                 id=snapshot.id,
                 portfolio_id=snapshot.portfolio_id,
+                # portfolio_name=snapshot.portfolio_name,  # DB에 컬럼이 없음
                 base_value=snapshot.base_value,
                 current_value=snapshot.current_value,
-                recorded_at=snapshot.recorded_at,
+                start_at=snapshot.start_at,
+                end_at=snapshot.end_at,
                 created_at=snapshot.created_at,
                 metric_id=snapshot.metric_id,
+                execution_time=float(snapshot.execution_time) if snapshot.execution_time else None,
                 holdings=holdings
             ))
         
         return response_snapshots
+
+    async def _update_portfolio_snapshot_execution_time(
+        self, 
+        session: AsyncSession, 
+        portfolio_snapshot_id: int, 
+        execution_time: float
+    ) -> None:
+        """포트폴리오 스냅샷의 실행 시간 업데이트"""
+        try:
+            from sqlalchemy import update
+            from app.models.stock import PortfolioSnapshot
+            
+            stmt = update(PortfolioSnapshot).where(
+                PortfolioSnapshot.id == portfolio_snapshot_id
+            ).values(execution_time=execution_time)
+            
+            await session.execute(stmt)
+            await session.commit()
+            
+            logger.debug(f"Updated execution_time for portfolio_snapshot {portfolio_snapshot_id}: {execution_time:.3f}s")
+            
+        except Exception as e:
+            logger.error(f"Failed to update execution_time for portfolio_snapshot {portfolio_snapshot_id}: {str(e)}")
+            await session.rollback()
+            raise
 
 
 # 백테스트 서비스는 의존성 주입으로 사용

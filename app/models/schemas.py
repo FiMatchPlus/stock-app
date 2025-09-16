@@ -203,11 +203,14 @@ class PortfolioSnapshotResponse(BaseModel):
     """포트폴리오 스냅샷 응답 스키마"""
     id: int
     portfolio_id: int
+    # portfolio_name: Optional[str] = None  # DB에 컬럼이 없음
     base_value: Decimal
     current_value: Decimal
-    recorded_at: datetime
+    start_at: datetime
+    end_at: datetime
     created_at: datetime
     metric_id: Optional[str] = None
+    execution_time: Optional[float] = None
     holdings: List[HoldingSnapshotResponse] = []
 
     class Config:
@@ -229,11 +232,19 @@ class BacktestMetrics(BaseModel):
     profit_loss_ratio: Decimal = Field(..., description="손익비")
 
 
+class ResultSummary(BaseModel):
+    """결과 요약 데이터 스키마"""
+    date: str = Field(..., description="날짜 (ISO 형식)")
+    portfolio_return: float = Field(..., description="포트폴리오 수익률")
+    portfolio_value: float = Field(..., description="포트폴리오 가치")
+    sharpe_ratio: Optional[float] = Field(None, description="샤프 비율")
+
+
 class BacktestResponse(BaseModel):
     """백테스트 응답 스키마"""
     portfolio_snapshot: PortfolioSnapshotResponse
-    metrics: BacktestMetrics
-    daily_returns: List[Dict[str, Any]] = Field(..., description="일별 수익률 데이터")
+    metrics: Optional[BacktestMetrics] = None
+    result_summary: List[ResultSummary] = Field(..., description="결과 요약 데이터")
     execution_time: float = Field(..., description="실행 시간 (초)")
 
 
@@ -280,8 +291,12 @@ class EmbeddingRequest(BaseModel):
     symbols: List[str] = Field(..., min_items=1, max_items=100, description="종목코드 목록")
     sequence_length: int = Field(60, ge=10, le=252, description="시퀀스 길이 (일)")
     embedding_dim: int = Field(64, ge=16, le=512, description="임베딩 차원")
-    model_type: str = Field("autoencoder", description="모델 타입")
+    model_name: str = Field("autoencoder", description="모델 이름")
     include_features: bool = Field(True, description="금융 피처 포함 여부")
+    
+    class Config:
+        # Pydantic v2에서 protected namespace 경고 억제
+        protected_namespaces = ()
 
 
 class EmbeddingResponse(BaseModel):

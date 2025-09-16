@@ -83,7 +83,7 @@ class ElasticsearchClient:
                                     "model_id": {"type": "keyword"},
                                     "embedding_dim": {"type": "integer"},
                                     "sequence_length": {"type": "integer"},
-                                    "model_type": {"type": "keyword"}
+                                    "model_name": {"type": "keyword"}
                                 }
                             },
                             "created_at": {
@@ -342,10 +342,10 @@ class ElasticsearchClient:
                         }
                     }
                 })
-            elif field == "model_type":
+            elif field == "model_name":
                 filter_queries.append({
                     "term": {
-                        "model_info.model_type": value
+                        "model_info.model_name": value
                     }
                 })
         

@@ -8,10 +8,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.database import get_async_session
 from app.models.schemas import (
     BacktestRequest, BacktestResponse, BacktestHistoryRequest, BacktestHistoryResponse,
-    ErrorResponse
+    ErrorResponse, ResultSummary
 )
 from app.services.backtest_service import BacktestService
 from app.services.metrics_service import MetricsService
+from app.services.backtest_metrics_converter_service import BacktestMetricsConverterService
+from app.services.portfolio_backtest_query_service import PortfolioBacktestQueryService
 from app.utils.mongodb_client import get_mongodb_client, MongoDBClient
 from app.utils.logger import get_logger
 
@@ -19,6 +21,26 @@ logger = get_logger(__name__)
 
 # 라우터 생성
 router = APIRouter(prefix="/backtest", tags=["backtest"])
+
+
+# 의존성 주입 함수들
+async def get_backtest_service() -> BacktestService:
+    """백테스트 서비스 의존성 주입"""
+    mongodb_client = await get_mongodb_client()
+    return BacktestService(mongodb_client)
+
+
+async def get_metrics_service() -> MetricsService:
+    """메트릭 서비스 의존성 주입"""
+    mongodb_client = await get_mongodb_client()
+    return MetricsService(mongodb_client)
+
+
+async def get_portfolio_backtest_query_service() -> PortfolioBacktestQueryService:
+    """포트폴리오 백테스트 조회 서비스 의존성 주입"""
+    mongodb_client = await get_mongodb_client()
+    metrics_service = MetricsService(mongodb_client)
+    return PortfolioBacktestQueryService(metrics_service)
 
 
 @router.post(
@@ -30,7 +52,8 @@ router = APIRouter(prefix="/backtest", tags=["backtest"])
 async def run_backtest(
     request: BacktestRequest,
     session: AsyncSession = Depends(get_async_session),
-    mongodb_client: MongoDBClient = Depends(get_mongodb_client),
+    backtest_service: BacktestService = Depends(get_backtest_service),
+    metrics_service: MetricsService = Depends(get_metrics_service),
     portfolio_id: Optional[int] = Query(None, description="포트폴리오 ID (선택사항)")
 ) -> BacktestResponse:
     """백테스트 실행"""
@@ -56,14 +79,12 @@ async def run_backtest(
                 detail="At least one holding must be specified"
             )
         
-        # 백테스트 서비스 인스턴스 생성
-        backtest_service = BacktestService(mongodb_client)
-        
         # 백테스트 실행
         result = await backtest_service.run_backtest(
             request=request,
             session=session,
-            portfolio_id=portfolio_id
+            portfolio_id=portfolio_id,
+            portfolio_name=getattr(request, 'portfolio_name', None)
         )
         
         logger.info(
@@ -95,7 +116,7 @@ async def get_backtest_history(
     limit: int = Query(100, ge=1, le=1000, description="조회 개수"),
     offset: int = Query(0, ge=0, description="오프셋"),
     session: AsyncSession = Depends(get_async_session),
-    mongodb_client: MongoDBClient = Depends(get_mongodb_client)
+    backtest_service: BacktestService = Depends(get_backtest_service)
 ) -> BacktestHistoryResponse:
     """백테스트 히스토리 조회"""
     try:
@@ -107,9 +128,6 @@ async def get_backtest_history(
             limit=limit,
             offset=offset
         )
-        
-        # 백테스트 서비스 인스턴스 생성
-        backtest_service = BacktestService(mongodb_client)
         
         # 히스토리 조회
         snapshots = await backtest_service.get_backtest_history(
@@ -149,7 +167,9 @@ async def get_backtest_history(
 )
 async def get_portfolio_backtests(
     portfolio_id: int = Path(..., description="포트폴리오 ID"),
-    session: AsyncSession = Depends(get_async_session)
+    session: AsyncSession = Depends(get_async_session),
+    backtest_service: BacktestService = Depends(get_backtest_service),
+    query_service: PortfolioBacktestQueryService = Depends(get_portfolio_backtest_query_service)
 ) -> List[BacktestResponse]:
     """특정 포트폴리오의 백테스트 조회"""
     try:
@@ -174,23 +194,21 @@ async def get_portfolio_backtests(
             count=len(snapshots)
         )
         
-        # BacktestResponse 형태로 변환 (간단한 형태)
-        results = []
-        for snapshot in snapshots:
-            results.append(BacktestResponse(
-                portfolio_snapshot=snapshot,
-                metrics=None,  # 추후 구현
-                daily_returns=[],  # 추후 구현
-                execution_time=0.0  # 추후 구현
-            ))
-        
-        return results
+        # BacktestResponse 형태로 변환
+        try:
+            results = await query_service.convert_snapshots_to_backtest_responses(snapshots)
+            return results
+        except Exception as conversion_error:
+            logger.error(f"Failed to convert snapshots to backtest responses: {str(conversion_error)}", 
+                        exc_info=True, extra={"portfolio_id": portfolio_id})
+            raise HTTPException(status_code=500, detail=f"Conversion error: {str(conversion_error)}")
         
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Failed to get portfolio backtests: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(f"Failed to get portfolio backtests: {str(e)}", 
+                    exc_info=True, extra={"portfolio_id": portfolio_id})
+        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
 
 
 @router.delete(
@@ -200,7 +218,8 @@ async def get_portfolio_backtests(
 )
 async def delete_portfolio_backtests(
     portfolio_id: int = Path(..., description="포트폴리오 ID"),
-    session: AsyncSession = Depends(get_async_session)
+    session: AsyncSession = Depends(get_async_session),
+    backtest_service: BacktestService = Depends(get_backtest_service)
 ) -> dict:
     """포트폴리오 백테스트 삭제"""
     try:
@@ -231,11 +250,10 @@ async def delete_portfolio_backtests(
 )
 async def get_backtest_metrics(
     metric_id: str = Path(..., description="MongoDB ObjectId"),
-    mongodb_client: MongoDBClient = Depends(get_mongodb_client)
+    metrics_service: MetricsService = Depends(get_metrics_service)
 ) -> dict:
     """백테스트 지표 조회"""
     try:
-        metrics_service = MetricsService(mongodb_client)
         metrics = await metrics_service.get_metrics(metric_id)
         
         if not metrics:
