@@ -24,7 +24,14 @@ class SchedulerService:
     """스케줄러 서비스"""
     
     def __init__(self):
-        self.scheduler = AsyncIOScheduler()
+        # APScheduler 설정 개선
+        self.scheduler = AsyncIOScheduler(
+            job_defaults={
+                'coalesce': True,  # 지연된 작업들을 하나로 합침
+                'max_instances': 1,  # 동시 실행 인스턴스 수 제한
+                'misfire_grace_time': 300  # 5분 내에 실행되지 않은 작업은 건너뜀
+            }
+        )
         self.is_running = False
     
     def start(self):
@@ -65,6 +72,9 @@ class SchedulerService:
         logger.info("일일 주식 데이터 크롤링 작업을 시작합니다.")
         
         try:
+            # 크롤링 시작 시간 기록
+            start_time = datetime.now()
+            logger.info(f"크롤링 시작 시간: {start_time}")
             # 데이터베이스 세션 생성
             async with AsyncSessionLocal() as db:
                 # stocks 테이블에서 모든 활성화된 종목의 ticker 조회
@@ -96,7 +106,15 @@ class SchedulerService:
                 logger.info(f"일일 주식 데이터 크롤링 완료. {saved_count}개 데이터가 저장되었습니다.")
                 
         except Exception as e:
-            logger.error(f"일일 주식 데이터 크롤링 오류: {e}")
+            # 예외 정보를 더 자세히 로깅
+            error_msg = str(e) if e else "Unknown error"
+            error_type = type(e).__name__ if e else "UnknownError"
+            logger.error(
+                f"일일 주식 데이터 크롤링 오류: {error_msg}",
+                error_type=error_type,
+                error_message=error_msg,
+                exc_info=True  # 스택 트레이스 포함
+            )
     
     async def _save_stock_prices(self, db: AsyncSession, stock_prices: List[StockPrice]) -> int:
         """주식 가격 데이터를 배치로 저장. 실패 시 개별 저장으로 재시도."""
@@ -111,7 +129,14 @@ class SchedulerService:
             return len(stock_prices)
         except Exception as e:
             await db.rollback()
-            logger.warning(f"배치 저장 실패, 개별 저장으로 재시도: {e}")
+            error_msg = str(e) if e else "Unknown error"
+            error_type = type(e).__name__ if e else "UnknownError"
+            logger.warning(
+                f"배치 저장 실패, 개별 저장으로 재시도: {error_msg}",
+                error_type=error_type,
+                error_message=error_msg,
+                exc_info=True
+            )
         
         # 2) 개별 저장 재시도 (충돌 항목 건너뜀)
         saved_count = 0
@@ -122,7 +147,16 @@ class SchedulerService:
                 saved_count += 1
             except Exception as e:
                 await db.rollback()
-                logger.debug(f"건너뜀: {sp.stock_code} ({sp.datetime}) - {e}")
+                error_msg = str(e) if e else "Unknown error"
+                error_type = type(e).__name__ if e else "UnknownError"
+                logger.warning(
+                    f"개별 저장 실패: {sp.stock_code} ({sp.datetime}) - {error_msg}",
+                    stock_code=sp.stock_code,
+                    datetime=sp.datetime,
+                    error_type=error_type,
+                    error_message=error_msg,
+                    exc_info=True
+                )
         
         logger.info(f"개별 저장 완료: {saved_count}/{len(stock_prices)}개")
         return saved_count
@@ -163,8 +197,16 @@ class SchedulerService:
                 }
                 
         except Exception as e:
-            logger.error(f"수동 크롤링 오류: {e}")
-            return {"success": False, "message": f"크롤링 오류: {str(e)}"}
+            # 예외 정보를 더 자세히 로깅
+            error_msg = str(e) if e else "Unknown error"
+            error_type = type(e).__name__ if e else "UnknownError"
+            logger.error(
+                f"수동 크롤링 오류: {error_msg}",
+                error_type=error_type,
+                error_message=error_msg,
+                exc_info=True
+            )
+            return {"success": False, "message": f"크롤링 오류: {error_msg}"}
     
     def get_scheduler_status(self) -> dict:
         """스케줄러 상태 조회"""

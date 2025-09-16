@@ -1,10 +1,21 @@
 """로깅 설정"""
 
 import structlog
+import logging
+import sys
 from datetime import datetime
 
 def get_logger(name: str = "stock_server"):
     """구조화된 로거 생성"""
+    
+    # Python 표준 로깅 설정
+    logging.basicConfig(
+        level=logging.INFO,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+        handlers=[
+            logging.StreamHandler(sys.stdout)
+        ]
+    )
     
     # Structlog 설정
     structlog.configure(

@@ -9,7 +9,6 @@ import uvicorn
 import time
 
 from app.config import settings
-from app.models.database import engine, Base
 from app.end import stock_router, websocket_router, backtest_router
 from app.services.parallel_processing_service import ParallelProcessingService
 from app.services.scheduler_service import scheduler_service
@@ -27,7 +26,7 @@ parallel_service = ParallelProcessingService()
 async def lifespan(app: FastAPI):
     """애플리케이션 생명주기 관리"""
     # 시작 시 실행
-    logger.info("Starting Stock Data Collection Server", version=settings.app_version)
+    logger.info("Starting Server", version=settings.app_version)
     
     # MongoDB 연결
     try:
@@ -50,7 +49,7 @@ async def lifespan(app: FastAPI):
     yield
     
     # 종료 시 실행
-    logger.info("Shutting down Stock Data Collection Server")
+    logger.info("Shutting down Server")
     
     # 스케줄러 중지
     try:
@@ -58,8 +57,6 @@ async def lifespan(app: FastAPI):
         logger.info("Scheduler service stopped")
     except Exception as e:
         logger.error("Failed to stop scheduler service", error=str(e))
-    
-    # 임베딩 스케줄러 제거됨
     
     # 병렬처리 서비스 정리
     try:
