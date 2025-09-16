@@ -45,11 +45,14 @@ class PortfolioSnapshot(Base):
     
     id = Column(BigInteger, primary_key=True, index=True)
     portfolio_id = Column(BigInteger, nullable=False, index=True)  # 외래키 제약조건 제거
+    # portfolio_name = Column(String(100), nullable=True)  # 포트폴리오 이름 - DB에 컬럼이 없음
     base_value = Column(Numeric(12, 2), nullable=False)
     current_value = Column(Numeric(12, 2), nullable=False)
-    recorded_at = Column(DateTime, nullable=False, index=True)
+    start_at = Column(DateTime, nullable=False, index=True)  # 백테스트 시작일
+    end_at = Column(DateTime, nullable=False, index=True)    # 백테스트 종료일
     created_at = Column(DateTime, nullable=False, default=get_kst_now)
     metric_id = Column(String(24), nullable=True, index=True)  # MongoDB ObjectId
+    execution_time = Column(Numeric(10, 3), nullable=True)  # 실행 시간 (초)
     
     # 관계 설정
     holdings = relationship("HoldingSnapshot", back_populates="portfolio_snapshot", cascade="all, delete-orphan")

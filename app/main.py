@@ -90,6 +90,29 @@ app = FastAPI(
     redoc_url="/redoc" if settings.debug else None,
 )
 
+# CORS Preflight 요청 처리 미들웨어 (CORS 미들웨어보다 먼저 실행)
+@app.middleware("http")
+async def handle_cors_preflight(request: Request, call_next):
+    """CORS preflight 요청을 처리하는 미들웨어"""
+    if request.method == "OPTIONS":
+        # Origin 헤더 확인
+        origin = request.headers.get("origin", "*")
+        
+        return JSONResponse(
+            status_code=200,
+            headers={
+                "Access-Control-Allow-Origin": origin,
+                "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
+                "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, Accept, Origin",
+                "Access-Control-Allow-Credentials": "true",
+                "Access-Control-Max-Age": "86400",  # 24시간
+            }
+        )
+    
+    response = await call_next(request)
+    return response
+
+
 # API 요청 로깅 미들웨어
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
@@ -127,7 +150,7 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if settings.debug else ["http://localhost:3000"],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
