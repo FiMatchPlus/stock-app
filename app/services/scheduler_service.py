@@ -72,9 +72,10 @@ class SchedulerService:
         logger.info("일일 주식 데이터 크롤링 작업을 시작합니다.")
         
         try:
-            # 크롤링 시작 시간 기록
-            start_time = datetime.now()
-            logger.info(f"크롤링 시작 시간: {start_time}")
+            # 크롤링 시작 시간 기록 (KST)
+            kst = timezone(timedelta(hours=9))
+            start_time = datetime.now(kst)
+            logger.info(f"크롤링 시작 시간 (KST): {start_time}")
             # 데이터베이스 세션 생성
             async with AsyncSessionLocal() as db:
                 # stocks 테이블에서 모든 활성화된 종목의 ticker 조회
