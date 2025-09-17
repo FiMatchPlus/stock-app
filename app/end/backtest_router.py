@@ -83,8 +83,7 @@ async def run_backtest(
         result = await backtest_service.run_backtest(
             request=request,
             session=session,
-            portfolio_id=portfolio_id,
-            portfolio_name=getattr(request, 'portfolio_name', None)
+            portfolio_id=portfolio_id
         )
         
         logger.info(
@@ -98,9 +97,34 @@ async def run_backtest(
     except ValueError as e:
         logger.warning(f"Backtest validation error: {str(e)}")
         raise HTTPException(status_code=400, detail=str(e))
+    except HTTPException:
+        # HTTPException은 그대로 재발생
+        raise
     except Exception as e:
-        logger.error(f"Backtest execution failed: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        logger.error(
+            "Backtest execution failed",
+            error=str(e),
+            error_type=type(e).__name__,
+            request_start=request.start,
+            request_end=request.end,
+            holdings_count=len(request.holdings),
+            portfolio_id=portfolio_id
+        )
+        
+        # 구체적인 에러 타입에 따른 처리
+        error_message = "백테스트 실행 중 오류가 발생했습니다."
+        
+        # SQLAlchemy 관련 에러
+        if "sqlalchemy" in str(type(e)).lower():
+            error_message = "데이터베이스 연결 오류가 발생했습니다."
+        # 데이터 관련 에러
+        elif "no stock price data" in str(e).lower():
+            error_message = "주가 데이터를 찾을 수 없습니다. 종목 코드와 날짜를 확인해주세요."
+        elif "empty" in str(e).lower() or "no data" in str(e).lower():
+            error_message = "백테스트에 필요한 데이터가 부족합니다."
+        
+        logger.info(f"Raising HTTPException with status 500 and message: {error_message}")
+        raise HTTPException(status_code=500, detail=error_message)
 
 
 @router.get(
@@ -156,7 +180,12 @@ async def get_backtest_history(
         
     except Exception as e:
         logger.error(f"Failed to get backtest history: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
+        error_message = "백테스트 히스토리 조회 중 오류가 발생했습니다."
+        
+        if "sqlalchemy" in str(type(e)).lower():
+            error_message = "데이터베이스 연결 오류가 발생했습니다."
+        
+        raise HTTPException(status_code=500, detail=error_message)
 
 
 @router.get(

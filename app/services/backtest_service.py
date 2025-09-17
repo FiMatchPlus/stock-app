@@ -40,8 +40,7 @@ class BacktestService:
         self, 
         request: BacktestRequest, 
         session: AsyncSession,
-        portfolio_id: Optional[int] = None,
-        portfolio_name: Optional[str] = None
+        portfolio_id: Optional[int] = None
     ) -> BacktestResponse:
         """백테스트 실행"""
         start_time = time.time()
@@ -57,7 +56,12 @@ class BacktestService:
             )
             
             if stock_prices is None or stock_prices.empty:
-                raise ValueError("No stock price data available for the given period")
+                stock_codes = [holding.code for holding in request.holdings]
+                raise ValueError(
+                    f"주가 데이터를 찾을 수 없습니다. "
+                    f"종목 코드({', '.join(stock_codes[:3])}{'...' if len(stock_codes) > 3 else ''})와 "
+                    f"기간({request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')})을 확인해주세요."
+                )
             
             # 3. 백테스트 실행
             portfolio_data, result_summary = await self._execute_backtest(
@@ -69,7 +73,7 @@ class BacktestService:
             
             # 5. 데이터베이스 저장
             portfolio_snapshot = await self._save_portfolio_snapshot(
-                request, portfolio_data, session, portfolio_id, portfolio_name
+                request, portfolio_data, session, portfolio_id
             )
             
             # 6. MongoDB에 metrics 저장
@@ -308,7 +312,7 @@ class BacktestService:
     async def _calculate_metrics(self, result_summary: List[Dict[str, Any]]) -> BacktestMetrics:
         """성과 지표 계산 (최적화된 버전)"""
         if not result_summary:
-            raise ValueError("No result summary data available")
+            raise ValueError("백테스트 결과 데이터가 없어 성과 지표를 계산할 수 없습니다.")
         
         # 수익률 배열 추출
         returns = np.array([rs['portfolio_return'] for rs in result_summary])
@@ -429,12 +433,11 @@ class BacktestService:
         portfolio_data: List[Dict[str, Any]], 
         session: AsyncSession,
         portfolio_id: Optional[int] = None,
-        portfolio_name: Optional[str] = None,
         execution_time: Optional[float] = None
     ) -> PortfolioSnapshotResponse:
         """포트폴리오 스냅샷 저장"""
         if not portfolio_data:
-            raise ValueError("No portfolio data to save")
+            raise ValueError("저장할 포트폴리오 데이터가 없습니다.")
         
         # 포트폴리오 ID 생성 (없는 경우)
         if portfolio_id is None:
@@ -495,7 +498,6 @@ class BacktestService:
         return PortfolioSnapshotResponse(
             id=portfolio_snapshot.id,
             portfolio_id=portfolio_snapshot.portfolio_id,
-            portfolio_name=portfolio_snapshot.portfolio_name,
             base_value=portfolio_snapshot.base_value,
             current_value=portfolio_snapshot.current_value,
             start_at=portfolio_snapshot.start_at,
@@ -614,7 +616,6 @@ class BacktestService:
             response_snapshots.append(PortfolioSnapshotResponse(
                 id=snapshot.id,
                 portfolio_id=snapshot.portfolio_id,
-                # portfolio_name=snapshot.portfolio_name,  # DB에 컬럼이 없음
                 base_value=snapshot.base_value,
                 current_value=snapshot.current_value,
                 start_at=snapshot.start_at,
