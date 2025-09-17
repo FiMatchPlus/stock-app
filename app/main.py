@@ -132,6 +132,12 @@ async def log_requests(request: Request, call_next):
     # 요청 처리
     response = await call_next(request)
     
+    # 에러 응답에도 CORS 헤더 추가 (예외 처리기에서 누락된 경우 대비)
+    if response.status_code >= 400:
+        origin = request.headers.get("origin", "*")
+        response.headers["Access-Control-Allow-Origin"] = origin
+        response.headers["Access-Control-Allow-Credentials"] = "true"
+    
     # 응답 로깅
     process_time = time.time() - start_time
     logger.info(
@@ -155,10 +161,32 @@ app.add_middleware(
 )
 
 
-# 전역 예외 처리기
+# HTTPException 처리기 (FastAPI 기본 처리기를 우선 사용)
+@app.exception_handler(HTTPException)
+async def http_exception_handler(request, exc):
+    """HTTPException 처리 - CORS 헤더 추가"""
+    origin = request.headers.get("origin", "*")
+    
+    response = JSONResponse(
+        status_code=exc.status_code,
+        content={"detail": exc.detail}
+    )
+    
+    # CORS 헤더 추가
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    
+    return response
+
+
+# 전역 예외 처리기 (HTTPException은 제외)
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
-    """전역 예외 처리"""
+    """전역 예외 처리 - HTTPException은 제외"""
+    # HTTPException은 이미 위에서 처리되므로 여기서는 제외
+    if isinstance(exc, HTTPException):
+        return await http_exception_handler(request, exc)
+    
     logger.error(
         "Unhandled exception",
         error=str(exc),
@@ -166,14 +194,20 @@ async def global_exception_handler(request, exc):
         method=request.method
     )
     
-    return JSONResponse(
+    origin = request.headers.get("origin", "*")
+    
+    response = JSONResponse(
         status_code=500,
         content={
-            "error": "Internal server error",
-            "detail": str(exc) if settings.debug else "An unexpected error occurred",
-            "timestamp": datetime.utcnow().isoformat()
+            "detail": str(exc) if settings.debug else "서버 내부 오류가 발생했습니다."
         }
     )
+    
+    # CORS 헤더 추가
+    response.headers["Access-Control-Allow-Origin"] = origin
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    
+    return response
 
 
 # 라우터 등록
