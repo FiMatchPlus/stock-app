@@ -12,11 +12,10 @@ TEST_BACKTEST_REQUEST = {
     "start": (datetime.now() - timedelta(days=30)).isoformat(),
     "end": datetime.now().isoformat(),
     "holdings": [
-        {"code": "005930", "weight": 0.5},  # 삼성전자
-        {"code": "000660", "weight": 0.3},  # SK하이닉스
-        {"code": "035420", "weight": 0.2}   # NAVER
+        {"code": "005930", "quantity": 100},  # 삼성전자 100주
+        {"code": "000660", "quantity": 50},   # SK하이닉스 50주
+        {"code": "035420", "quantity": 25}    # NAVER 25주
     ],
-    "initial_capital": 1000000,
     "rebalance_frequency": "daily"
 }
 
@@ -89,15 +88,14 @@ async def test_with_invalid_data():
     print("\n5. Testing with invalid data...")
     
     async with httpx.AsyncClient() as client:
-        # 잘못된 가중치 합계
+        # 잘못된 수량 (0 또는 음수)
         invalid_request = {
             "start": (datetime.now() - timedelta(days=7)).isoformat(),
             "end": datetime.now().isoformat(),
             "holdings": [
-                {"code": "005930", "weight": 0.6},
-                {"code": "000660", "weight": 0.6}  # 합계가 1.2
-            ],
-            "initial_capital": 1000000
+                {"code": "005930", "quantity": 100},
+                {"code": "000660", "quantity": 0}  # 잘못된 수량
+            ]
         }
         
         response = await client.post(
