@@ -192,10 +192,10 @@ class BacktestService:
         request: BacktestRequest, 
         stock_prices: pd.DataFrame
     ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """백테스트 실행 (벡터화 연산 활용)"""
+        """백테스트 실행 (수량 기반 벡터화 연산)"""
         
-        # 포트폴리오 가중치 딕셔너리 생성
-        weights = {holding.code: holding.weight for holding in request.holdings}
+        # 포트폴리오 보유 수량 딕셔너리 생성
+        quantities = {holding.code: holding.quantity for holding in request.holdings}
         
         # 피벗 테이블로 변환 (날짜 x 종목)
         price_pivot = stock_prices.pivot_table(
@@ -213,14 +213,9 @@ class BacktestService:
             aggfunc='first'
         )
         
-        # 포트폴리오 수익률 계산 (벡터화)
-        portfolio_returns = self._calculate_portfolio_returns(
-            returns_pivot, weights
-        )
-        
-        # 포트폴리오 가치 계산
-        portfolio_values = self._calculate_portfolio_values(
-            portfolio_returns, request.initial_capital
+        # 포트폴리오 가치 계산 (수량 기반)
+        portfolio_values, portfolio_returns = self._calculate_portfolio_values_by_quantity(
+            price_pivot, quantities
         )
         
         # 일별 데이터 생성
@@ -282,6 +277,33 @@ class BacktestService:
         portfolio_values = cumulative_returns * float(initial_capital)
         
         return portfolio_values
+    
+    def _calculate_portfolio_values_by_quantity(
+        self, 
+        price_pivot: pd.DataFrame, 
+        quantities: Dict[str, int]
+    ) -> Tuple[pd.Series, pd.Series]:
+        """수량 기반 포트폴리오 가치 및 수익률 계산"""
+        
+        # 공통 종목만 필터링
+        common_stocks = price_pivot.columns.intersection(quantities.keys())
+        price_data = price_pivot[common_stocks]
+        
+        # 각 종목별 가치 계산 (가격 × 수량)
+        portfolio_values_daily = pd.Series(index=price_data.index, dtype=float)
+        
+        for date in price_data.index:
+            daily_value = 0
+            for stock in common_stocks:
+                if pd.notna(price_data.loc[date, stock]):
+                    stock_value = price_data.loc[date, stock] * quantities[stock]
+                    daily_value += stock_value
+            portfolio_values_daily[date] = daily_value
+        
+        # 일별 수익률 계산
+        portfolio_returns = portfolio_values_daily.pct_change().fillna(0)
+        
+        return portfolio_values_daily, portfolio_returns
     
     async def _calculate_metrics(self, result_summary: List[Dict[str, Any]]) -> BacktestMetrics:
         """성과 지표 계산 (최적화된 버전)"""
@@ -420,7 +442,8 @@ class BacktestService:
         
         # 최종 포트폴리오 값
         final_data = portfolio_data[-1]
-        base_value = Decimal(str(request.initial_capital))
+        initial_data = portfolio_data[0]
+        base_value = Decimal(str(initial_data['portfolio_value']))
         current_value = Decimal(str(final_data['portfolio_value']))
         
         # 포트폴리오 스냅샷 생성
@@ -445,16 +468,19 @@ class BacktestService:
             )
             
             if stock_price:
-                # 보유 수량 계산
-                quantity = int((current_value * Decimal(str(holding.weight))) / Decimal(str(stock_price.close_price)))
+                # 실제 보유 수량 사용
+                quantity = holding.quantity
                 
                 # 보유 가치 계산
                 holding_value = Decimal(str(stock_price.close_price)) * quantity
                 
+                # 가중치 계산 (전체 포트폴리오 대비 비중)
+                weight = holding_value / current_value if current_value > 0 else Decimal('0')
+                
                 holding_snapshot = HoldingSnapshot(
                     stock_id=holding.code,
                     portfolio_snapshot_id=portfolio_snapshot.id,
-                    weight=Decimal(str(holding.weight)),
+                    weight=weight,
                     price=Decimal(str(stock_price.close_price)),
                     quantity=quantity,
                     value=holding_value,
@@ -530,8 +556,8 @@ class BacktestService:
         cache_data = {
             'start': request.start.isoformat(),
             'end': request.end.isoformat(),
-            'holdings': [(h.code, h.weight) for h in request.holdings],
-            'initial_capital': str(request.initial_capital)
+            'holdings': [(h.code, h.quantity) for h in request.holdings],
+            'rebalance_frequency': request.rebalance_frequency
         }
         
         cache_string = json.dumps(cache_data, sort_keys=True)

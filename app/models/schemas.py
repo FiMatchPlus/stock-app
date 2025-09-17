@@ -158,7 +158,9 @@ class ErrorResponse(BaseModel):
 class Holding(BaseModel):
     """보유 종목 스키마"""
     code: str = Field(..., description="종목코드")
-    weight: float = Field(..., ge=0, le=1, description="가중치 (0~1)")
+    quantity: int = Field(..., ge=0, description="보유 수량 (주)")
+    avg_price: Optional[Decimal] = Field(None, ge=0, description="평균 매수가 (선택사항)")
+    current_value: Optional[Decimal] = Field(None, ge=0, description="현재 평가액 (선택사항)")
 
 
 class BacktestRequest(BaseModel):
@@ -166,15 +168,15 @@ class BacktestRequest(BaseModel):
     start: datetime = Field(..., description="시작일")
     end: datetime = Field(..., description="종료일")
     holdings: List[Holding] = Field(..., min_items=1, description="보유 종목 목록")
-    initial_capital: Optional[Decimal] = Field(1000000, ge=0, description="초기 자본금")
     rebalance_frequency: Optional[str] = Field("daily", description="리밸런싱 주기")
 
     @field_validator('holdings')
     @classmethod
-    def validate_holdings_weights(cls, v):
-        total_weight = sum(holding.weight for holding in v)
-        if abs(total_weight - 1.0) > 0.001:  # 소수점 오차 허용
-            raise ValueError(f'Total weight must be 1.0, got {total_weight}')
+    def validate_holdings_quantities(cls, v):
+        """보유 수량 검증"""
+        for holding in v:
+            if holding.quantity <= 0:
+                raise ValueError(f'Quantity must be positive for {holding.code}')
         return v
 
     @field_validator('rebalance_frequency')
