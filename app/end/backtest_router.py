@@ -373,7 +373,7 @@ async def send_callback(callback_url: str, response: BacktestCallbackResponse):
         async with httpx.AsyncClient(timeout=30.0) as client:
             callback_result = await client.post(
                 callback_url,
-                json=response.model_dump(),
+                json=response.model_dump(mode='json'),
                 headers={"Content-Type": "application/json"}
             )
             
