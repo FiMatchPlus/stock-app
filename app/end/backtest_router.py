@@ -49,8 +49,8 @@ async def run_backtest(
     try:
         logger.info(
             "Backtest request received",
-            start_date=request.start,
-            end_date=request.end,
+            start_date=request.start.isoformat(),
+            end_date=request.end.isoformat(),
             holdings_count=len(request.holdings),
             portfolio_id=portfolio_id
         )
@@ -171,8 +171,8 @@ async def run_backtest(
             "Backtest execution failed",
             error=str(e),
             error_type=type(e).__name__,
-            request_start=request.start,
-            request_end=request.end,
+            request_start=request.start.isoformat(),
+            request_end=request.end.isoformat(),
             holdings_count=len(request.holdings),
             portfolio_id=portfolio_id
         )

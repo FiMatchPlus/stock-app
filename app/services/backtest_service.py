@@ -18,7 +18,6 @@ from app.models.schemas import (
 )
 from app.exceptions import MissingStockPriceDataException, InsufficientDataException
 from app.utils.logger import get_logger
-# from app.services.cache_service import cache_service
 
 logger = get_logger(__name__)
 
@@ -28,7 +27,6 @@ class BacktestService:
     
     def __init__(self):
         self.thread_pool = ThreadPoolExecutor(max_workers=4)
-        self.cache = None  # cache_service 임시 비활성화
         
     async def run_backtest(
         self, 
@@ -42,7 +40,7 @@ class BacktestService:
         try:
             # 1. 입력 검증 및 데이터 준비
             logger.info(f"Starting backtest for {len(request.holdings)} holdings", 
-                       start=request.start, end=request.end)
+                       start=request.start.isoformat(), end=request.end.isoformat())
             
             # 2. 주가 데이터 조회 (캐싱 활용)
             if session is None:
@@ -106,16 +104,6 @@ class BacktestService:
         session: AsyncSession
     ) -> pd.DataFrame:
         """최적화된 주가 데이터 조회"""
-        # 캐시 키 생성
-        cache_key = self._generate_cache_key(request)
-        
-        # 캐시에서 조회 시도 (임시 비활성화)
-        # if self.cache:
-        #     cached_data = await self.cache.get(cache_key)
-        #     if cached_data:
-        #         logger.info("Using cached stock price data")
-        #         return pd.read_json(cached_data)
-        
         # 종목 코드 추출
         stock_codes = [holding.code for holding in request.holdings]
         
@@ -192,10 +180,6 @@ class BacktestService:
         
         # 데이터 전처리 및 최적화
         df = await self._preprocess_stock_data(df)
-        
-        # 캐시에 저장 (임시 비활성화)
-        # if self.cache:
-        #     await self.cache.set(cache_key, df.to_json(), ttl=3600)
         
         return df
     
