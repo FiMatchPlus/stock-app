@@ -28,10 +28,6 @@ class Settings(BaseSettings):
     mongodb_url: str = Field(default="mongodb://localhost:27017", description="MongoDB URL")
     mongodb_database: str = Field(default="stockone19", description="MongoDB 데이터베이스 이름")
     
-    # Elasticsearch 설정
-    elasticsearch_url: str = Field(default="http://localhost:9200", description="Elasticsearch URL")
-    elasticsearch_username: Optional[str] = Field(default=None, description="Elasticsearch 사용자명")
-    elasticsearch_password: Optional[str] = Field(default=None, description="Elasticsearch 비밀번호")
 
     # KIS API 설정
     kis_base_url: str = Field(default="https://openapi.koreainvestment.com:9443", description="한국투자증권 API 기본 URL")
@@ -42,10 +38,6 @@ class Settings(BaseSettings):
     # 병렬처리 설정
     max_workers: int = Field(default=4, description="최대 워커 수")
     chunk_size: int = Field(default=1000, description="청크 크기")
-    
-    # WebSocket 설정
-    websocket_heartbeat_interval: int = Field(default=30, description="WebSocket 하트비트 간격(초)")
-    max_websocket_connections: int = Field(default=1000, description="최대 WebSocket 연결 수")
     
     # 캐시 설정
     cache_ttl: int = Field(default=300, description="캐시 TTL(초)")

@@ -139,12 +139,7 @@ class AggregateResult(BaseModel):
     calculated_at: datetime
 
 
-class WebSocketMessage(BaseModel):
-    """WebSocket 메시지 스키마"""
-    type: str = Field(..., description="메시지 타입")
-    symbol: Optional[str] = Field(None, description="종목코드")
-    data: Optional[Dict[str, Any]] = Field(None, description="데이터")
-    timestamp: datetime = Field(default_factory=get_kst_now, description="타임스탬프")
+# WebSocket 스키마 제거됨
 
 
 class ErrorResponse(BaseModel):
@@ -191,11 +186,7 @@ class HoldingSnapshotResponse(BaseModel):
     """보유 종목 스냅샷 응답 스키마"""
     id: int
     stock_id: str
-    weight: Decimal
-    price: Decimal
     quantity: int
-    value: Decimal
-    recorded_at: datetime
 
     class Config:
         from_attributes = True
@@ -205,14 +196,12 @@ class PortfolioSnapshotResponse(BaseModel):
     """포트폴리오 스냅샷 응답 스키마"""
     id: int
     portfolio_id: int
-    # portfolio_name: Optional[str] = None  # DB에 컬럼이 없음
     base_value: Decimal
     current_value: Decimal
     start_at: datetime
     end_at: datetime
     created_at: datetime
-    metric_id: Optional[str] = None
-    execution_time: Optional[float] = None
+    execution_time: float
     holdings: List[HoldingSnapshotResponse] = []
 
     class Config:
@@ -234,12 +223,21 @@ class BacktestMetrics(BaseModel):
     profit_loss_ratio: Decimal = Field(..., description="손익비")
 
 
-class ResultSummary(BaseModel):
-    """결과 요약 데이터 스키마"""
+class StockDailyData(BaseModel):
+    """종목별 일별 데이터 스키마"""
+    stock_code: str = Field(..., description="종목코드")
     date: str = Field(..., description="날짜 (ISO 형식)")
-    portfolio_return: float = Field(..., description="포트폴리오 수익률")
-    portfolio_value: float = Field(..., description="포트폴리오 가치")
-    sharpe_ratio: Optional[float] = Field(None, description="샤프 비율")
+    close_price: float = Field(..., description="종가")
+    daily_return: float = Field(..., description="일별 수익률")
+    portfolio_weight: float = Field(..., description="포트폴리오 내 비중")
+    portfolio_contribution: float = Field(..., description="포트폴리오 수익률 기여도")
+    value: float = Field(..., description="보유 가치")
+
+
+class ResultSummary(BaseModel):
+    """결과 요약 데이터 스키마 (종목별 일별 데이터)"""
+    date: str = Field(..., description="날짜 (ISO 형식)")
+    stocks: List[StockDailyData] = Field(..., description="종목별 일별 데이터")
 
 
 class BacktestResponse(BaseModel):
@@ -249,107 +247,3 @@ class BacktestResponse(BaseModel):
     result_summary: List[ResultSummary] = Field(..., description="결과 요약 데이터")
     execution_time: float = Field(..., description="실행 시간 (초)")
 
-
-class BacktestHistoryRequest(BaseModel):
-    """백테스트 히스토리 조회 요청 스키마"""
-    portfolio_id: Optional[int] = Field(None, description="포트폴리오 ID")
-    start_date: Optional[datetime] = Field(None, description="시작일")
-    end_date: Optional[datetime] = Field(None, description="종료일")
-    limit: Optional[int] = Field(100, ge=1, le=1000, description="조회 개수")
-    offset: Optional[int] = Field(0, ge=0, description="오프셋")
-
-
-class BacktestHistoryResponse(BaseModel):
-    """백테스트 히스토리 응답 스키마"""
-    total_count: int
-    snapshots: List[PortfolioSnapshotResponse]
-    summary_metrics: Optional[BacktestMetrics] = None
-
-
-# 시계열 임베딩 모델 관련 스키마
-class TimeSeriesData(BaseModel):
-    """시계열 데이터 스키마"""
-    symbol: str = Field(..., description="종목코드")
-    timestamps: List[datetime] = Field(..., description="시간 시퀀스")
-    prices: List[float] = Field(..., description="가격 시퀀스")
-    volumes: List[int] = Field(..., description="거래량 시퀀스")
-    returns: List[float] = Field(..., description="수익률 시퀀스")
-
-
-class FinancialFeatures(BaseModel):
-    """금융 피처 스키마"""
-    symbol: str = Field(..., description="종목코드")
-    volatility: float = Field(..., description="변동성")
-    beta: float = Field(..., description="베타")
-    sector: str = Field(..., description="섹터")
-    market_cap: Optional[float] = Field(None, description="시가총액")
-    pe_ratio: Optional[float] = Field(None, description="PER")
-    pb_ratio: Optional[float] = Field(None, description="PBR")
-    dividend_yield: Optional[float] = Field(None, description="배당수익률")
-
-
-class EmbeddingRequest(BaseModel):
-    """임베딩 생성 요청 스키마"""
-    symbols: List[str] = Field(..., min_items=1, max_items=100, description="종목코드 목록")
-    sequence_length: int = Field(60, ge=10, le=252, description="시퀀스 길이 (일)")
-    embedding_dim: int = Field(64, ge=16, le=512, description="임베딩 차원")
-    model_name: str = Field("autoencoder", description="모델 이름")
-    include_features: bool = Field(True, description="금융 피처 포함 여부")
-    
-    class Config:
-        # Pydantic v2에서 protected namespace 경고 억제
-        protected_namespaces = ()
-
-
-class EmbeddingResponse(BaseModel):
-    """임베딩 응답 스키마"""
-    symbol: str = Field(..., description="종목코드")
-    embedding: List[float] = Field(..., description="임베딩 벡터")
-    features: Optional[FinancialFeatures] = Field(None, description="금융 피처")
-    model_info: Dict[str, Any] = Field(..., description="모델 정보")
-
-
-class ModelTrainingRequest(BaseModel):
-    """모델 훈련 요청 스키마"""
-    symbols: List[str] = Field(..., min_items=10, description="훈련용 종목코드 목록")
-    sequence_length: int = Field(60, ge=10, le=252, description="시퀀스 길이")
-    embedding_dim: int = Field(64, ge=16, le=512, description="임베딩 차원")
-    epochs: int = Field(100, ge=10, le=1000, description="훈련 에포크")
-    batch_size: int = Field(32, ge=8, le=256, description="배치 크기")
-    learning_rate: float = Field(0.001, ge=0.0001, le=0.1, description="학습률")
-    validation_split: float = Field(0.2, ge=0.1, le=0.5, description="검증 분할 비율")
-
-
-class ModelTrainingResponse(BaseModel):
-    """모델 훈련 응답 스키마"""
-    model_id: str = Field(..., description="모델 ID")
-    training_loss: List[float] = Field(..., description="훈련 손실")
-    validation_loss: List[float] = Field(..., description="검증 손실")
-    final_metrics: Dict[str, float] = Field(..., description="최종 메트릭")
-    training_time: float = Field(..., description="훈련 시간 (초)")
-
-
-class ElasticsearchDocument(BaseModel):
-    """Elasticsearch 저장용 문서 스키마"""
-    symbol: str = Field(..., description="종목코드")
-    embedding: List[float] = Field(..., description="임베딩 벡터")
-    features: FinancialFeatures = Field(..., description="금융 피처")
-    model_info: Dict[str, Any] = Field(..., description="모델 정보")
-    created_at: datetime = Field(default_factory=get_kst_now, description="생성 시간")
-    updated_at: datetime = Field(default_factory=get_kst_now, description="업데이트 시간")
-
-
-class EmbeddingSearchRequest(BaseModel):
-    """임베딩 검색 요청 스키마"""
-    query_embedding: List[float] = Field(..., description="검색할 임베딩 벡터")
-    top_k: int = Field(10, ge=1, le=100, description="상위 K개 결과")
-    filters: Optional[Dict[str, Any]] = Field(None, description="필터 조건")
-
-
-class EmbeddingSearchResponse(BaseModel):
-    """임베딩 검색 응답 스키마"""
-    symbol: str = Field(..., description="종목코드")
-    score: float = Field(..., description="유사도 점수")
-    embedding: List[float] = Field(..., description="임베딩 벡터")
-    features: FinancialFeatures = Field(..., description="금융 피처")
-    model_info: Dict[str, Any] = Field(..., description="모델 정보")

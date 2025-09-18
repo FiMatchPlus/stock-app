@@ -9,7 +9,7 @@ import uvicorn
 import time
 
 from app.config import settings
-from app.end import stock_router, websocket_router, backtest_router
+from app.end import stock_router, backtest_router
 from app.services.parallel_processing_service import ParallelProcessingService
 from app.services.scheduler_service import scheduler_service
 from app.utils.redis_client import close_redis_client
@@ -44,7 +44,6 @@ async def lifespan(app: FastAPI):
         logger.error("Failed to start scheduler service", error=str(e))
         raise
     
-    # 임베딩 스케줄러 제거됨
     
     yield
     
@@ -212,9 +211,7 @@ async def global_exception_handler(request, exc):
 
 # 라우터 등록
 app.include_router(stock_router)
-app.include_router(websocket_router)
 app.include_router(backtest_router)
-# 임베딩 라우터 제거됨
 
 
 # 헬스 체크 엔드포인트
@@ -366,7 +363,6 @@ async def stop_scheduler():
         raise HTTPException(status_code=500, detail=str(e))
 
 
-## 임베딩 스케줄러 관련 엔드포인트 제거됨
 
 
 if __name__ == "__main__":

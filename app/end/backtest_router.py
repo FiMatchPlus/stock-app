@@ -1,20 +1,15 @@
 """백테스트 API 라우터"""
 
 from datetime import datetime
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query, Path
+from typing import Optional
+from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_async_session
 from app.models.schemas import (
-    BacktestRequest, BacktestResponse, BacktestHistoryRequest, BacktestHistoryResponse,
-    ErrorResponse, ResultSummary
+    BacktestRequest, BacktestResponse
 )
 from app.services.backtest_service import BacktestService
-from app.services.metrics_service import MetricsService
-from app.services.backtest_metrics_converter_service import BacktestMetricsConverterService
-from app.services.portfolio_backtest_query_service import PortfolioBacktestQueryService
-from app.utils.mongodb_client import get_mongodb_client, MongoDBClient
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -26,21 +21,7 @@ router = APIRouter(prefix="/backtest", tags=["backtest"])
 # 의존성 주입 함수들
 async def get_backtest_service() -> BacktestService:
     """백테스트 서비스 의존성 주입"""
-    mongodb_client = await get_mongodb_client()
-    return BacktestService(mongodb_client)
-
-
-async def get_metrics_service() -> MetricsService:
-    """메트릭 서비스 의존성 주입"""
-    mongodb_client = await get_mongodb_client()
-    return MetricsService(mongodb_client)
-
-
-async def get_portfolio_backtest_query_service() -> PortfolioBacktestQueryService:
-    """포트폴리오 백테스트 조회 서비스 의존성 주입"""
-    mongodb_client = await get_mongodb_client()
-    metrics_service = MetricsService(mongodb_client)
-    return PortfolioBacktestQueryService(metrics_service)
+    return BacktestService()
 
 
 @router.post(
@@ -53,7 +34,6 @@ async def run_backtest(
     request: BacktestRequest,
     session: AsyncSession = Depends(get_async_session),
     backtest_service: BacktestService = Depends(get_backtest_service),
-    metrics_service: MetricsService = Depends(get_metrics_service),
     portfolio_id: Optional[int] = Query(None, description="포트폴리오 ID (선택사항)")
 ) -> BacktestResponse:
     """백테스트 실행"""
@@ -125,217 +105,6 @@ async def run_backtest(
         
         logger.info(f"Raising HTTPException with status 500 and message: {error_message}")
         raise HTTPException(status_code=500, detail=error_message)
-
-
-@router.get(
-    "/history",
-    response_model=BacktestHistoryResponse,
-    summary="백테스트 히스토리 조회",
-    description="백테스트 실행 히스토리를 조회합니다."
-)
-async def get_backtest_history(
-    portfolio_id: Optional[int] = Query(None, description="포트폴리오 ID"),
-    start_date: Optional[datetime] = Query(None, description="시작일"),
-    end_date: Optional[datetime] = Query(None, description="종료일"),
-    limit: int = Query(100, ge=1, le=1000, description="조회 개수"),
-    offset: int = Query(0, ge=0, description="오프셋"),
-    session: AsyncSession = Depends(get_async_session),
-    backtest_service: BacktestService = Depends(get_backtest_service)
-) -> BacktestHistoryResponse:
-    """백테스트 히스토리 조회"""
-    try:
-        logger.info(
-            "Backtest history request received",
-            portfolio_id=portfolio_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            offset=offset
-        )
-        
-        # 히스토리 조회
-        snapshots = await backtest_service.get_backtest_history(
-            session=session,
-            portfolio_id=portfolio_id,
-            start_date=start_date,
-            end_date=end_date,
-            limit=limit,
-            offset=offset
-        )
-        
-        # 총 개수 조회 (추후 구현 필요)
-        total_count = len(snapshots)  # 임시로 현재 결과 개수 사용
-        
-        logger.info(
-            "Backtest history retrieved successfully",
-            count=len(snapshots),
-            total_count=total_count
-        )
-        
-        return BacktestHistoryResponse(
-            total_count=total_count,
-            snapshots=snapshots,
-            summary_metrics=None  # 추후 구현
-        )
-        
-    except Exception as e:
-        logger.error(f"Failed to get backtest history: {str(e)}")
-        error_message = "백테스트 히스토리 조회 중 오류가 발생했습니다."
-        
-        if "sqlalchemy" in str(type(e)).lower():
-            error_message = "데이터베이스 연결 오류가 발생했습니다."
-        
-        raise HTTPException(status_code=500, detail=error_message)
-
-
-@router.get(
-    "/portfolio/{portfolio_id}",
-    response_model=List[BacktestResponse],
-    summary="특정 포트폴리오 백테스트 조회",
-    description="특정 포트폴리오의 모든 백테스트 결과를 조회합니다."
-)
-async def get_portfolio_backtests(
-    portfolio_id: int = Path(..., description="포트폴리오 ID"),
-    session: AsyncSession = Depends(get_async_session),
-    backtest_service: BacktestService = Depends(get_backtest_service),
-    query_service: PortfolioBacktestQueryService = Depends(get_portfolio_backtest_query_service)
-) -> List[BacktestResponse]:
-    """특정 포트폴리오의 백테스트 조회"""
-    try:
-        logger.info(f"Portfolio backtest request received", portfolio_id=portfolio_id)
-        
-        # 포트폴리오별 백테스트 조회
-        snapshots = await backtest_service.get_backtest_history(
-            session=session,
-            portfolio_id=portfolio_id,
-            limit=1000  # 모든 결과 조회
-        )
-        
-        if not snapshots:
-            raise HTTPException(
-                status_code=404,
-                detail=f"No backtest results found for portfolio {portfolio_id}"
-            )
-        
-        logger.info(
-            "Portfolio backtests retrieved successfully",
-            portfolio_id=portfolio_id,
-            count=len(snapshots)
-        )
-        
-        # BacktestResponse 형태로 변환
-        try:
-            results = await query_service.convert_snapshots_to_backtest_responses(snapshots)
-            return results
-        except Exception as conversion_error:
-            logger.error(f"Failed to convert snapshots to backtest responses: {str(conversion_error)}", 
-                        exc_info=True, extra={"portfolio_id": portfolio_id})
-            raise HTTPException(status_code=500, detail=f"Conversion error: {str(conversion_error)}")
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get portfolio backtests: {str(e)}", 
-                    exc_info=True, extra={"portfolio_id": portfolio_id})
-        raise HTTPException(status_code=500, detail=f"Server error: {str(e)}")
-
-
-@router.delete(
-    "/portfolio/{portfolio_id}",
-    summary="포트폴리오 백테스트 삭제",
-    description="특정 포트폴리오의 모든 백테스트 결과를 삭제합니다."
-)
-async def delete_portfolio_backtests(
-    portfolio_id: int = Path(..., description="포트폴리오 ID"),
-    session: AsyncSession = Depends(get_async_session),
-    backtest_service: BacktestService = Depends(get_backtest_service)
-) -> dict:
-    """포트폴리오 백테스트 삭제"""
-    try:
-        logger.info(f"Portfolio backtest deletion request received", portfolio_id=portfolio_id)
-        
-        # 포트폴리오별 백테스트 삭제 (추후 구현)
-        # 현재는 기본 응답만 반환
-        
-        logger.info(
-            "Portfolio backtests deleted successfully",
-            portfolio_id=portfolio_id
-        )
-        
-        return {
-            "message": f"Portfolio {portfolio_id} backtest results deleted successfully",
-            "portfolio_id": portfolio_id
-        }
-        
-    except Exception as e:
-        logger.error(f"Failed to delete portfolio backtests: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get(
-    "/metrics/{metric_id}",
-    summary="백테스트 지표 조회",
-    description="MongoDB에서 특정 백테스트 지표를 조회합니다."
-)
-async def get_backtest_metrics(
-    metric_id: str = Path(..., description="MongoDB ObjectId"),
-    metrics_service: MetricsService = Depends(get_metrics_service)
-) -> dict:
-    """백테스트 지표 조회"""
-    try:
-        metrics = await metrics_service.get_metrics(metric_id)
-        
-        if not metrics:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Metrics not found with id: {metric_id}"
-            )
-        
-        logger.info(f"Metrics retrieved successfully: {metric_id}")
-        return {
-            "success": True,
-            "data": metrics
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get metrics: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
-
-@router.get(
-    "/metrics/portfolio/{portfolio_snapshot_id}",
-    summary="포트폴리오 스냅샷별 지표 조회",
-    description="포트폴리오 스냅샷 ID로 백테스트 지표를 조회합니다."
-)
-async def get_metrics_by_portfolio_snapshot(
-    portfolio_snapshot_id: int = Path(..., description="포트폴리오 스냅샷 ID"),
-    mongodb_client: MongoDBClient = Depends(get_mongodb_client)
-) -> dict:
-    """포트폴리오 스냅샷별 지표 조회"""
-    try:
-        metrics_service = MetricsService(mongodb_client)
-        metrics = await metrics_service.get_metrics_by_portfolio_snapshot(portfolio_snapshot_id)
-        
-        if not metrics:
-            raise HTTPException(
-                status_code=404,
-                detail=f"Metrics not found for portfolio snapshot: {portfolio_snapshot_id}"
-            )
-        
-        logger.info(f"Metrics retrieved by portfolio snapshot: {portfolio_snapshot_id}")
-        return {
-            "success": True,
-            "data": metrics
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Failed to get metrics by portfolio snapshot: {str(e)}")
-        raise HTTPException(status_code=500, detail="Internal server error")
-
 
 @router.get(
     "/health",
