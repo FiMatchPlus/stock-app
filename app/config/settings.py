@@ -43,9 +43,7 @@ class Settings(BaseSettings):
     max_workers: int = Field(default=4, description="최대 워커 수")
     chunk_size: int = Field(default=1000, description="청크 크기")
     
-    # WebSocket 설정
-    websocket_heartbeat_interval: int = Field(default=30, description="WebSocket 하트비트 간격(초)")
-    max_websocket_connections: int = Field(default=1000, description="최대 WebSocket 연결 수")
+    # WebSocket 설정 제거됨
     
     # 캐시 설정
     cache_ttl: int = Field(default=300, description="캐시 TTL(초)")

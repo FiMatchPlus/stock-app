@@ -139,12 +139,7 @@ class AggregateResult(BaseModel):
     calculated_at: datetime
 
 
-class WebSocketMessage(BaseModel):
-    """WebSocket 메시지 스키마"""
-    type: str = Field(..., description="메시지 타입")
-    symbol: Optional[str] = Field(None, description="종목코드")
-    data: Optional[Dict[str, Any]] = Field(None, description="데이터")
-    timestamp: datetime = Field(default_factory=get_kst_now, description="타임스탬프")
+# WebSocket 스키마 제거됨
 
 
 class ErrorResponse(BaseModel):
@@ -191,11 +186,7 @@ class HoldingSnapshotResponse(BaseModel):
     """보유 종목 스냅샷 응답 스키마"""
     id: int
     stock_id: str
-    weight: Decimal
-    price: Decimal
     quantity: int
-    value: Decimal
-    recorded_at: datetime
 
     class Config:
         from_attributes = True
@@ -205,14 +196,12 @@ class PortfolioSnapshotResponse(BaseModel):
     """포트폴리오 스냅샷 응답 스키마"""
     id: int
     portfolio_id: int
-    # portfolio_name: Optional[str] = None  # DB에 컬럼이 없음
     base_value: Decimal
     current_value: Decimal
     start_at: datetime
     end_at: datetime
     created_at: datetime
-    metric_id: Optional[str] = None
-    execution_time: Optional[float] = None
+    execution_time: float
     holdings: List[HoldingSnapshotResponse] = []
 
     class Config:
@@ -234,12 +223,21 @@ class BacktestMetrics(BaseModel):
     profit_loss_ratio: Decimal = Field(..., description="손익비")
 
 
-class ResultSummary(BaseModel):
-    """결과 요약 데이터 스키마"""
+class StockDailyData(BaseModel):
+    """종목별 일별 데이터 스키마"""
+    stock_code: str = Field(..., description="종목코드")
     date: str = Field(..., description="날짜 (ISO 형식)")
-    portfolio_return: float = Field(..., description="포트폴리오 수익률")
-    portfolio_value: float = Field(..., description="포트폴리오 가치")
-    sharpe_ratio: Optional[float] = Field(None, description="샤프 비율")
+    close_price: float = Field(..., description="종가")
+    daily_return: float = Field(..., description="일별 수익률")
+    portfolio_weight: float = Field(..., description="포트폴리오 내 비중")
+    portfolio_contribution: float = Field(..., description="포트폴리오 수익률 기여도")
+    value: float = Field(..., description="보유 가치")
+
+
+class ResultSummary(BaseModel):
+    """결과 요약 데이터 스키마 (종목별 일별 데이터)"""
+    date: str = Field(..., description="날짜 (ISO 형식)")
+    stocks: List[StockDailyData] = Field(..., description="종목별 일별 데이터")
 
 
 class BacktestResponse(BaseModel):
@@ -250,20 +248,7 @@ class BacktestResponse(BaseModel):
     execution_time: float = Field(..., description="실행 시간 (초)")
 
 
-class BacktestHistoryRequest(BaseModel):
-    """백테스트 히스토리 조회 요청 스키마"""
-    portfolio_id: Optional[int] = Field(None, description="포트폴리오 ID")
-    start_date: Optional[datetime] = Field(None, description="시작일")
-    end_date: Optional[datetime] = Field(None, description="종료일")
-    limit: Optional[int] = Field(100, ge=1, le=1000, description="조회 개수")
-    offset: Optional[int] = Field(0, ge=0, description="오프셋")
-
-
-class BacktestHistoryResponse(BaseModel):
-    """백테스트 히스토리 응답 스키마"""
-    total_count: int
-    snapshots: List[PortfolioSnapshotResponse]
-    summary_metrics: Optional[BacktestMetrics] = None
+# 히스토리 관련 스키마들 제거됨 - 조회 기능 없음
 
 
 # 시계열 임베딩 모델 관련 스키마
