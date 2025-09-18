@@ -255,7 +255,7 @@ async def calculate_aggregates(data: dict):
         return {
             "message": "Aggregates calculated successfully",
             "count": len(results),
-            "results": [result.model_dump() for result in results]
+            "results": [result.model_dump(mode='json') for result in results]
         }
     
     except Exception as e:
