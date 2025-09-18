@@ -191,7 +191,8 @@ class BacktestRequest(BaseModel):
     end: datetime = Field(..., description="종료일")
     holdings: List[Holding] = Field(..., min_items=1, description="보유 종목 목록")
     rebalance_frequency: Optional[str] = Field("daily", description="리밸런싱 주기")
-
+    callback_url: Optional[str] = Field(None, description="결과를 받을 콜백 URL (비동기 처리 시 필수)")
+    
     @field_validator('holdings')
     @classmethod
     def validate_holdings_quantities(cls, v):
@@ -250,6 +251,29 @@ class BacktestMetrics(BaseModel):
     profit_loss_ratio: Decimal = Field(..., description="손익비")
 
 
+class BacktestJobResponse(BaseModel):
+    """비동기 백테스트 작업 시작 응답"""
+    job_id: str = Field(..., description="작업 ID")
+    status: str = Field(..., description="작업 상태 (started)")
+    message: str = Field(..., description="상태 메시지")
+
+
+class BacktestCallbackResponse(BaseModel):
+    """백테스트 완료 콜백 응답 스키마 - 기존 BacktestResponse/BacktestErrorResponse와 동일한 구조"""
+    job_id: str = Field(..., description="작업 ID")
+    # 성공 시: BacktestResponse와 동일한 필드들
+    success: Optional[bool] = Field(None, description="성공 여부")
+    portfolio_snapshot: Optional['PortfolioSnapshotResponse'] = Field(None, description="포트폴리오 스냅샷")
+    metrics: Optional['BacktestMetrics'] = Field(None, description="성과 지표")
+    result_summary: Optional[List['ResultSummary']] = Field(None, description="결과 요약 데이터")
+    # 실패 시: BacktestErrorResponse와 동일한 필드들  
+    error: Optional['BacktestDataError'] = Field(None, description="오류 상세 정보")
+    # 공통 필드
+    execution_time: float = Field(..., description="실행 시간 (초)")
+    request_id: Optional[str] = Field(None, description="요청 ID")
+    timestamp: datetime = Field(default_factory=get_kst_now, description="완료 시각")
+
+
 class StockDailyData(BaseModel):
     """종목별 일별 데이터 스키마"""
     stock_code: str = Field(..., description="종목코드")
@@ -258,7 +282,7 @@ class StockDailyData(BaseModel):
     daily_return: float = Field(..., description="일별 수익률")
     portfolio_weight: float = Field(..., description="포트폴리오 내 비중")
     portfolio_contribution: float = Field(..., description="포트폴리오 수익률 기여도")
-    value: float = Field(..., description="보유 가치")
+    quantity: int = Field(..., description="보유 수량 (주)")
 
 
 class ResultSummary(BaseModel):

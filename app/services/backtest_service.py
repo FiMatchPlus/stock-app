@@ -269,7 +269,7 @@ class BacktestService:
                         'daily_return': float(stock_return),
                         'portfolio_weight': float(stock_weight),
                         'portfolio_contribution': float(portfolio_contribution),
-                        'value': float(stock_value)
+                        'quantity': stock_quantity
                     })
             
             # 결과 요약 데이터 (종목별 데이터 포함)
