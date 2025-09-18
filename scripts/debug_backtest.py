@@ -14,12 +14,12 @@ async def debug_backtest():
         # MongoDB 연결
         print("1. MongoDB 연결 중...")
         await mongodb_client.connect(MONGODB_URL, MONGODB_DATABASE)
-        print("✅ MongoDB 연결 성공")
+        print("MongoDB 연결 성공")
         
         # 백테스트 서비스 생성
         print("2. 백테스트 서비스 생성 중...")
         backtest_service = BacktestService(mongodb_client)
-        print("✅ 백테스트 서비스 생성 성공")
+        print("백테스트 서비스 생성 성공")
         
         # 테스트 요청 생성
         print("3. 테스트 요청 생성 중...")
@@ -31,7 +31,7 @@ async def debug_backtest():
             ],
             initial_capital=1000000
         )
-        print("✅ 테스트 요청 생성 성공")
+        print("테스트 요청 생성 성공")
         
         # 데이터베이스 세션 생성
         print("4. 데이터베이스 세션 생성 중...")
@@ -45,7 +45,7 @@ async def debug_backtest():
                     portfolio_id=None
                 )
                 
-                print("✅ 백테스트 실행 성공!")
+                print("백테스트 실행 성공!")
                 print(f"   - Portfolio Snapshot ID: {result.portfolio_snapshot.id}")
                 print(f"   - Metric ID: {result.portfolio_snapshot.metric_id}")
                 print(f"   - 실행 시간: {result.execution_time:.3f}초")
@@ -59,14 +59,14 @@ async def debug_backtest():
                 break
                 
             except Exception as e:
-                print(f"❌ 백테스트 실행 실패: {str(e)}")
+                print(f"백테스트 실행 실패: {str(e)}")
                 import traceback
                 traceback.print_exc()
             finally:
                 await session.close()
         
     except Exception as e:
-        print(f"❌ 디버그 실패: {str(e)}")
+        print(f"디버그 실패: {str(e)}")
         import traceback
         traceback.print_exc()
     

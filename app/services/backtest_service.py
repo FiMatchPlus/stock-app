@@ -16,6 +16,7 @@ from app.models.schemas import (
     BacktestRequest, BacktestResponse, BacktestMetrics,
     PortfolioSnapshotResponse, HoldingSnapshotResponse
 )
+from app.exceptions import MissingStockPriceDataException, InsufficientDataException
 from app.utils.logger import get_logger
 # from app.services.cache_service import cache_service
 
@@ -51,11 +52,21 @@ class BacktestService:
             )
             
             if stock_prices is None or stock_prices.empty:
-                stock_codes = [holding.code for holding in request.holdings]
-                raise ValueError(
-                    f"주가 데이터를 찾을 수 없습니다. "
-                    f"종목 코드({', '.join(stock_codes[:3])}{'...' if len(stock_codes) > 3 else ''})와 "
-                    f"기간({request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')})을 확인해주세요."
+                # 모든 종목의 데이터가 없는 경우
+                missing_stocks = []
+                for holding in request.holdings:
+                    missing_stocks.append({
+                        'stock_code': holding.code,
+                        'start_date': request.start.strftime('%Y-%m-%d'),
+                        'end_date': request.end.strftime('%Y-%m-%d'),
+                        'available_date_range': None
+                    })
+                
+                requested_period = f"{request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')}"
+                raise MissingStockPriceDataException(
+                    missing_stocks=missing_stocks,
+                    requested_period=requested_period,
+                    total_stocks=len(request.holdings)
                 )
             
             # 3. 백테스트 실행
@@ -138,6 +149,46 @@ class BacktestService:
             })
         
         df = pd.DataFrame(data)
+        
+        # 각 종목별로 데이터 존재 여부 확인
+        if not df.empty:
+            available_stocks = set(df['stock_code'].unique())
+            missing_stocks = []
+            
+            for stock_code in stock_codes:
+                if stock_code not in available_stocks:
+                    # 해당 종목의 사용 가능한 날짜 범위 확인
+                    available_range_query = select(StockPrice).where(
+                        and_(
+                            StockPrice.stock_code == stock_code,
+                            StockPrice.interval_unit == "1d"
+                        )
+                    ).order_by(StockPrice.datetime)
+                    
+                    range_result = await session.execute(available_range_query)
+                    available_prices = range_result.scalars().all()
+                    
+                    available_range = None
+                    if available_prices:
+                        start_date = min(price.datetime for price in available_prices).strftime('%Y-%m-%d')
+                        end_date = max(price.datetime for price in available_prices).strftime('%Y-%m-%d')
+                        available_range = f"{start_date} ~ {end_date}"
+                    
+                    missing_stocks.append({
+                        'stock_code': stock_code,
+                        'start_date': request.start.strftime('%Y-%m-%d'),
+                        'end_date': request.end.strftime('%Y-%m-%d'),
+                        'available_date_range': available_range
+                    })
+            
+            # 일부 종목의 데이터가 없는 경우 예외 발생
+            if missing_stocks:
+                requested_period = f"{request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')}"
+                raise MissingStockPriceDataException(
+                    missing_stocks=missing_stocks,
+                    requested_period=requested_period,
+                    total_stocks=len(stock_codes)
+                )
         
         # 데이터 전처리 및 최적화
         df = await self._preprocess_stock_data(df)
