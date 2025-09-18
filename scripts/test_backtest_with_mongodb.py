@@ -37,7 +37,7 @@ async def test_backtest_with_mongodb():
                 portfolio_snapshot = result['portfolio_snapshot']
                 metric_id = portfolio_snapshot.get('metric_id')
                 
-                print(f"✅ 백테스트 실행 성공")
+                print(f"백테스트 실행 성공")
                 print(f"   - Portfolio Snapshot ID: {portfolio_snapshot['id']}")
                 print(f"   - Metric ID: {metric_id}")
                 print(f"   - 실행 시간: {result['execution_time']:.3f}초")
@@ -58,13 +58,13 @@ async def test_backtest_with_mongodb():
                     
                     if metrics_response.status_code == 200:
                         metrics_data = metrics_response.json()
-                        print("✅ MongoDB metrics 조회 성공")
+                        print("MongoDB metrics 조회 성공")
                         print(f"   - Metric ID: {metrics_data['data']['_id']}")
                         print(f"   - Portfolio Snapshot ID: {metrics_data['data']['portfolio_snapshot_id']}")
                         print(f"   - 총 수익률: {metrics_data['data']['total_return']}")
                         print(f"   - 샤프 비율: {metrics_data['data']['sharpe_ratio']}")
                     else:
-                        print(f"❌ MongoDB metrics 조회 실패: {metrics_response.status_code}")
+                        print(f"MongoDB metrics 조회 실패: {metrics_response.status_code}")
                         print(f"   응답: {metrics_response.text}")
                 
                 # 3. Portfolio Snapshot ID로 metrics 조회
@@ -75,10 +75,10 @@ async def test_backtest_with_mongodb():
                 
                 if portfolio_metrics_response.status_code == 200:
                     portfolio_metrics_data = portfolio_metrics_response.json()
-                    print("✅ Portfolio Snapshot ID로 metrics 조회 성공")
+                    print("Portfolio Snapshot ID로 metrics 조회 성공")
                     print(f"   - Metric ID: {portfolio_metrics_data['data']['_id']}")
                 else:
-                    print(f"❌ Portfolio Snapshot ID로 metrics 조회 실패: {portfolio_metrics_response.status_code}")
+                    print(f"Portfolio Snapshot ID로 metrics 조회 실패: {portfolio_metrics_response.status_code}")
                 
                 # 4. 백테스트 히스토리 조회
                 print(f"\n4. 백테스트 히스토리 조회 중...")
@@ -86,7 +86,7 @@ async def test_backtest_with_mongodb():
                 
                 if history_response.status_code == 200:
                     history_data = history_response.json()
-                    print("✅ 백테스트 히스토리 조회 성공")
+                    print("백테스트 히스토리 조회 성공")
                     print(f"   - 총 스냅샷 수: {history_data['total_count']}")
                     
                     if history_data['snapshots']:
@@ -94,14 +94,14 @@ async def test_backtest_with_mongodb():
                         print(f"   - 최신 스냅샷 ID: {latest_snapshot['id']}")
                         print(f"   - Metric ID: {latest_snapshot.get('metric_id', 'None')}")
                 else:
-                    print(f"❌ 백테스트 히스토리 조회 실패: {history_response.status_code}")
+                    print(f"백테스트 히스토리 조회 실패: {history_response.status_code}")
                 
             else:
-                print(f"❌ 백테스트 실행 실패: {response.status_code}")
+                print(f"백테스트 실행 실패: {response.status_code}")
                 print(f"   응답: {response.text}")
                 
         except Exception as e:
-            print(f"❌ 테스트 실패: {str(e)}")
+            print(f"테스트 실패: {str(e)}")
             import traceback
             traceback.print_exc()
 

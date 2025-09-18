@@ -15,7 +15,7 @@ async def test_mongodb_integration():
     try:
         print("1. MongoDB 연결 테스트...")
         await mongodb_client.connect(MONGODB_URL, MONGODB_DATABASE)
-        print("✅ MongoDB 연결 성공")
+        print("MongoDB 연결 성공")
         
         print("\n2. Metrics 서비스 테스트...")
         metrics_service = MetricsService(mongodb_client)
@@ -37,25 +37,25 @@ async def test_mongodb_integration():
         
         print("3. Metrics 저장 테스트...")
         metric_id = await metrics_service.save_metrics(test_metrics, 1)
-        print(f"✅ Metrics 저장 성공 - ID: {metric_id}")
+        print(f"Metrics 저장 성공 - ID: {metric_id}")
         
         print("4. Metrics 조회 테스트...")
         retrieved_metrics = await metrics_service.get_metrics(metric_id)
         if retrieved_metrics:
-            print("✅ Metrics 조회 성공")
+            print("Metrics 조회 성공")
             print(f"   - 총 수익률: {retrieved_metrics['total_return']}")
             print(f"   - 샤프 비율: {retrieved_metrics['sharpe_ratio']}")
             print(f"   - 최대 낙폭: {retrieved_metrics['max_drawdown']}")
         else:
-            print("❌ Metrics 조회 실패")
+            print("Metrics 조회 실패")
         
         print("5. Portfolio Snapshot ID로 조회 테스트...")
         portfolio_metrics = await metrics_service.get_metrics_by_portfolio_snapshot(1)
         if portfolio_metrics:
-            print("✅ Portfolio Snapshot ID로 조회 성공")
+            print("Portfolio Snapshot ID로 조회 성공")
             print(f"   - Metric ID: {portfolio_metrics['_id']}")
         else:
-            print("❌ Portfolio Snapshot ID로 조회 실패")
+            print("Portfolio Snapshot ID로 조회 실패")
         
         print("6. Metrics 업데이트 테스트...")
         updated_metrics = BacktestMetrics(
@@ -74,25 +74,25 @@ async def test_mongodb_integration():
         
         update_success = await metrics_service.update_metrics(metric_id, updated_metrics)
         if update_success:
-            print("✅ Metrics 업데이트 성공")
+            print("Metrics 업데이트 성공")
         else:
-            print("❌ Metrics 업데이트 실패")
+            print("Metrics 업데이트 실패")
         
         print("7. 히스토리 조회 테스트...")
         history = await metrics_service.get_metrics_history(1, limit=10)
-        print(f"✅ 히스토리 조회 성공 - {len(history)}개 항목")
+        print(f"히스토리 조회 성공 - {len(history)}개 항목")
         
         print("8. Metrics 삭제 테스트...")
         delete_success = await metrics_service.delete_metrics(metric_id)
         if delete_success:
-            print("✅ Metrics 삭제 성공")
+            print("Metrics 삭제 성공")
         else:
-            print("❌ Metrics 삭제 실패")
+            print("Metrics 삭제 실패")
         
         print("\n🎉 모든 MongoDB 연동 테스트 완료!")
         
     except Exception as e:
-        print(f"❌ 테스트 실패: {str(e)}")
+        print(f"테스트 실패: {str(e)}")
         import traceback
         traceback.print_exc()
     

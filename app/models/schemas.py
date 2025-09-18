@@ -149,6 +149,33 @@ class ErrorResponse(BaseModel):
     timestamp: datetime = Field(default_factory=get_kst_now, description="에러 발생 시간")
 
 
+class MissingStockData(BaseModel):
+    """누락된 주가 데이터 정보"""
+    stock_code: str = Field(..., description="종목코드")
+    start_date: str = Field(..., description="요청된 시작일")
+    end_date: str = Field(..., description="요청된 종료일")
+    available_date_range: Optional[str] = Field(None, description="사용 가능한 날짜 범위")
+
+
+class BacktestDataError(BaseModel):
+    """백테스트 데이터 오류 정보"""
+    error_type: str = Field(..., description="오류 유형")
+    message: str = Field(..., description="오류 메시지")
+    missing_data: List[MissingStockData] = Field(..., description="누락된 데이터 목록")
+    requested_period: str = Field(..., description="요청된 기간")
+    total_stocks: int = Field(..., description="총 요청 종목 수")
+    missing_stocks_count: int = Field(..., description="데이터 누락 종목 수")
+    timestamp: datetime = Field(default_factory=get_kst_now, description="오류 발생 시간")
+
+
+class BacktestErrorResponse(BaseModel):
+    """백테스트 오류 응답 스키마"""
+    success: bool = Field(False, description="성공 여부")
+    error: BacktestDataError = Field(..., description="오류 상세 정보")
+    execution_time: float = Field(..., description="실행 시간 (초)")
+    request_id: Optional[str] = Field(None, description="요청 ID")
+
+
 # 백테스트 관련 스키마
 class Holding(BaseModel):
     """보유 종목 스키마"""
@@ -242,8 +269,10 @@ class ResultSummary(BaseModel):
 
 class BacktestResponse(BaseModel):
     """백테스트 응답 스키마"""
+    success: bool = Field(True, description="성공 여부")
     portfolio_snapshot: PortfolioSnapshotResponse
     metrics: Optional[BacktestMetrics] = None
     result_summary: List[ResultSummary] = Field(..., description="결과 요약 데이터")
     execution_time: float = Field(..., description="실행 시간 (초)")
+    request_id: Optional[str] = Field(None, description="요청 ID")
 
