@@ -17,7 +17,6 @@ from app.models.schemas import (
     PortfolioSnapshotResponse, HoldingSnapshotResponse
 )
 from app.utils.logger import get_logger
-# MongoDB 관련 import 제거됨
 # from app.services.cache_service import cache_service
 
 logger = get_logger(__name__)
@@ -434,7 +433,6 @@ class BacktestService:
         profit_loss_ratio = avg_win / avg_loss if avg_loss > 0 else 0
         
         return win_rate, profit_loss_ratio
-    
     
     def _create_portfolio_snapshot_response(
         self, 

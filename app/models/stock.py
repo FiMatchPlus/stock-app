@@ -1,15 +1,13 @@
 from sqlalchemy import Column, Integer, String, DateTime, Float, Index, Computed, BigInteger, Numeric, ForeignKey
-from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime, timezone, timedelta
+from app.models.database import Base
 
 # 한국 시간대 설정
 KST = timezone(timedelta(hours=9))
 
 def get_kst_now():
     return datetime.now(KST).replace(tzinfo=None)
-
-Base = declarative_base()
 
 class Stock(Base):
     __tablename__ = "stocks"
