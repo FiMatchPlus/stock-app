@@ -382,7 +382,7 @@ async def send_callback(callback_url: str, response: BacktestCallbackResponse):
                     "Callback sent successfully",
                     job_id=response.job_id,
                     callback_url=callback_url,
-                    status=response.status
+                    success=response.success
                 )
             else:
                 logger.warning(
