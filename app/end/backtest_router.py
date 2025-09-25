@@ -3,8 +3,9 @@
 import time
 import uuid
 import httpx
+import numpy as np
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Dict
 from fastapi import APIRouter, Depends, HTTPException, Query, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -392,6 +393,8 @@ async def send_callback(callback_url: str, response: BacktestCallbackResponse):
                     status_code=callback_result.status_code,
                     response_text=callback_result.text
                 )
+                # HTTP 에러도 예외로 처리하여 상위에서 실패로 처리되도록 함
+                raise Exception(f"Callback HTTP error: {callback_result.status_code} - {callback_result.text}")
                 
     except Exception as e:
         logger.error(
@@ -400,6 +403,8 @@ async def send_callback(callback_url: str, response: BacktestCallbackResponse):
             callback_url=callback_url,
             error=str(e)
         )
+        # 콜백 전송 실패 시 예외를 다시 발생시켜 상위에서 실패로 처리되도록 함
+        raise
 
 @router.get(
     "/health",
@@ -481,3 +486,68 @@ async def get_metrics_explanation() -> dict:
             }
         }
     }
+
+
+@router.post(
+    "/analyze/{portfolio_id}",
+    summary="백테스트 결과 고도화 분석",
+    description="완료된 백테스트 결과에 대해 벤치마크 비교 및 고급 리스크 지표를 계산합니다."
+)
+async def analyze_backtest_result(
+    portfolio_id: int,
+    benchmark_code: str = Query("KOSPI", description="비교할 벤치마크 지수 코드"),
+    risk_free_rate: Optional[float] = Query(None, description="무위험수익률 (연율, 미제공시 자동 조회)"),
+    session: AsyncSession = Depends(get_async_session),
+) -> Dict[str, float]:
+    """백테스트 결과 고도화 분석
+    
+    백테스트가 완료된 포트폴리오에 대해 벤치마크 대비 성과를 분석하고
+    고급 리스크 지표들을 계산하여 반환합니다.
+    """
+    try:
+        # TODO: 실제로는 저장된 백테스트 결과에서 포트폴리오 수익률 시계열을 조회해야 함
+        # 현재는 예시로 임시 구현
+        
+        backtest_service = BacktestService()
+        
+        # 임시: 포트폴리오 수익률 시계열 생성 (실제로는 DB에서 조회)
+        import pandas as pd
+        from datetime import datetime, timedelta
+        
+        # 예시 데이터 (실제로는 백테스트 결과에서 조회)
+        dates = pd.date_range(
+            start=datetime.now() - timedelta(days=252),
+            end=datetime.now(),
+            freq='D'
+        )
+        portfolio_returns = pd.Series(
+            data=np.random.normal(0.0005, 0.015, len(dates)),  # 임시 랜덤 수익률
+            index=dates,
+            name='portfolio_returns'
+        )
+        
+        # 고도화 분석 실행
+        analysis_result = await backtest_service.analyze_backtest_performance(
+            portfolio_returns=portfolio_returns,
+            benchmark_code=benchmark_code,
+            session=session,
+            risk_free_rate=risk_free_rate
+        )
+        
+        logger.info(
+            "Enhanced backtest analysis completed",
+            portfolio_id=portfolio_id,
+            benchmark_code=benchmark_code,
+            metrics_count=len(analysis_result)
+        )
+        
+        return analysis_result
+        
+    except Exception as e:
+        logger.error(
+            "Failed to analyze backtest result",
+            portfolio_id=portfolio_id,
+            benchmark_code=benchmark_code,
+            error=str(e)
+        )
+        raise HTTPException(status_code=500, detail=str(e))
