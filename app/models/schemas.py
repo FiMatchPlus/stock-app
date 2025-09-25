@@ -263,7 +263,6 @@ class BacktestCallbackResponse(BaseModel):
     job_id: str = Field(..., description="작업 ID")
     # 성공 시: BacktestResponse와 동일한 필드들
     success: Optional[bool] = Field(None, description="성공 여부")
-    status: Optional[str] = Field(None, description="작업 상태 (success/failed)")
     portfolio_snapshot: Optional['PortfolioSnapshotResponse'] = Field(None, description="포트폴리오 스냅샷")
     metrics: Optional['BacktestMetrics'] = Field(None, description="성과 지표")
     result_summary: Optional[List['ResultSummary']] = Field(None, description="결과 요약 데이터")
