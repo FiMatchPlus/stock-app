@@ -300,3 +300,144 @@ class BacktestResponse(BaseModel):
     execution_time: float = Field(..., description="실행 시간 (초)")
     request_id: Optional[str] = Field(None, description="요청 ID")
 
+
+# ------------------------------
+# Analysis (MPT/CAPM) Schemas
+# ------------------------------
+
+class AnalysisHoldingInput(BaseModel):
+    """분석 입력 보유 종목 스키마"""
+    stock_code: str = Field(..., description="종목코드")
+    quantity: int = Field(..., ge=1, description="보유 수량 (주)")
+
+
+class AnalysisRequest(BaseModel):
+    """포트폴리오 분석 요청 스키마 (MPT/CAPM)"""
+    holdings: List[AnalysisHoldingInput] = Field(..., min_items=1, description="보유 종목 목록")
+    lookback_years: int = Field(3, ge=1, le=10, description="과거 데이터 조회 연수 (3~5 추천)")
+    benchmark: Optional[str] = Field(None, description="벤치마크 지수 코드 (예: KOSPI, KOSDAQ). 미제공 시 내부 추정")
+    risk_free_rate: Optional[float] = Field(None, description="연간 무위험 수익률 (소수). 미제공 시 0 가정")
+
+
+class PortfolioWeights(BaseModel):
+    """종목별 비중"""
+    weights: Dict[str, float] = Field(..., description="종목코드별 비중 (합계 1.0)")
+
+
+class AnalysisMetrics(BaseModel):
+    """포트폴리오 성과 지표 (MPT/CAPM)"""
+    expected_return: float = Field(..., description="기대수익률 (연환산)")
+    std_deviation: float = Field(..., description="표준편차 (연환산)")
+    beta: float = Field(..., description="베타 (벤치마크 대비)")
+    sharpe_ratio: float = Field(..., description="샤프 비율")
+    jensen_alpha: float = Field(..., description="젠센 알파")
+
+
+class AnalysisResponse(BaseModel):
+    """포트폴리오 분석 응답"""
+    success: bool = Field(True, description="성공 여부")
+    min_variance: PortfolioWeights = Field(..., description="최소분산 포트폴리오 비중")
+    max_sharpe: PortfolioWeights = Field(..., description="최대 샤프 포트폴리오 비중")
+    metrics: Dict[str, AnalysisMetrics] = Field(..., description="포트폴리오명 별 성과 지표")
+    notes: Optional[str] = Field(None, description="참고 사항")
+
+
+# ------------------------------
+# Benchmark & Risk-Free Rate Schemas
+# ------------------------------
+
+class BenchmarkPriceResponse(BaseModel):
+    """벤치마크 가격 응답 스키마"""
+    id: int
+    index_code: str
+    datetime: datetime
+    open_price: Decimal
+    high_price: Decimal
+    low_price: Decimal
+    close_price: Decimal
+    change_amount: Decimal
+    change_rate: Decimal
+    volume: int
+    trading_value: Decimal
+    market_cap: Optional[Decimal]
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class RiskFreeRateResponse(BaseModel):
+    """무위험수익률 응답 스키마"""
+    id: int
+    rate_type: str
+    datetime: datetime
+    rate: Decimal
+    daily_rate: Decimal
+    source: str
+    created_at: datetime
+    updated_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+# ------------------------------
+# Enhanced Analysis Schemas
+# ------------------------------
+
+class EnhancedAnalysisMetrics(BaseModel):
+    """향상된 포트폴리오 성과 지표"""
+    # 기본 지표
+    expected_return: float = Field(..., description="기대수익률 (연환산)")
+    std_deviation: float = Field(..., description="표준편차 (연환산)")
+    
+    # 벤치마크 대비 지표
+    beta: float = Field(..., description="베타 (벤치마크 대비)")
+    alpha: float = Field(..., description="알파 (CAPM 기준)")
+    jensen_alpha: float = Field(..., description="젠센 알파")
+    tracking_error: float = Field(..., description="트래킹 에러")
+    
+    # 위험조정 수익률 지표
+    sharpe_ratio: float = Field(..., description="샤프 비율")
+    treynor_ratio: float = Field(..., description="트레이너 비율")
+    sortino_ratio: float = Field(..., description="소르티노 비율")
+    calmar_ratio: float = Field(..., description="칼마 비율")
+    information_ratio: float = Field(..., description="정보비율")
+    
+    # 리스크 지표
+    max_drawdown: float = Field(..., description="최대 낙폭")
+    downside_deviation: float = Field(..., description="하방편차")
+    upside_beta: float = Field(..., description="상승 베타")
+    downside_beta: float = Field(..., description="하락 베타")
+    
+    # 벤치마크 상관관계
+    correlation_with_benchmark: float = Field(..., description="벤치마크와의 상관관계")
+
+
+class BenchmarkComparison(BaseModel):
+    """벤치마크 비교 결과"""
+    benchmark_code: str = Field(..., description="벤치마크 지수 코드")
+    benchmark_return: float = Field(..., description="벤치마크 수익률 (연환산)")
+    benchmark_volatility: float = Field(..., description="벤치마크 변동성")
+    
+    # 초과 성과
+    excess_return: float = Field(..., description="초과 수익률")
+    relative_volatility: float = Field(..., description="상대 변동성")
+    
+    # 성과 기여도 분석
+    security_selection: float = Field(..., description="종목선택 효과")
+    timing_effect: float = Field(..., description="타이밍 효과")
+
+
+class EnhancedAnalysisResponse(BaseModel):
+    """향상된 포트폴리오 분석 응답"""
+    success: bool = Field(True, description="성공 여부")
+    min_variance: PortfolioWeights = Field(..., description="최소분산 포트폴리오 비중")
+    max_sharpe: PortfolioWeights = Field(..., description="최대 샤프 포트폴리오 비중")
+    metrics: Dict[str, EnhancedAnalysisMetrics] = Field(..., description="향상된 성과 지표")
+    benchmark_comparison: Optional[BenchmarkComparison] = Field(None, description="벤치마크 비교 결과")
+    risk_free_rate_used: float = Field(..., description="사용된 무위험수익률")
+    analysis_period: Dict[str, datetime] = Field(..., description="분석 기간")
+    notes: Optional[str] = Field(None, description="참고 사항")
+
