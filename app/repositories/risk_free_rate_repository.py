@@ -167,13 +167,13 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
 
     async def get_risk_free_rate_stats(
         self,
-        rate_type: str = "CD91",
         start_date: datetime,
-        end_date: datetime
+        end_date: datetime,
+        rate_type: str = "CD91"
     ) -> Dict[str, float]:
         """무위험수익률 통계 정보 조회"""
         try:
-            rate_series = await self.get_risk_free_rate_series(rate_type, start_date, end_date)
+            rate_series = await self.get_risk_free_rate_series(start_date, end_date, rate_type)
             
             if rate_series.empty:
                 return {}
