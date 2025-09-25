@@ -59,9 +59,9 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
 
     async def get_risk_free_rate_series(
         self,
-        rate_type: str = "CD91",
         start_date: datetime,
-        end_date: datetime
+        end_date: datetime,
+        rate_type: str = "CD91"
     ) -> pd.Series:
         """지정된 기간의 무위험수익률 시계열 조회"""
         try:
