@@ -185,6 +185,26 @@ class Holding(BaseModel):
     current_value: Optional[Decimal] = Field(None, ge=0, description="현재 평가액 (선택사항)")
 
 
+class TradingRule(BaseModel):
+    """거래 규칙 스키마"""
+    category: str = Field(..., description="규칙 카테고리")
+    value: float = Field(..., description="임계값")
+    
+    @field_validator('category')
+    @classmethod
+    def validate_category(cls, v):
+        valid_categories = ['BETA', 'MDD', 'VAR', 'ONEPROFIT']
+        if v not in valid_categories:
+            raise ValueError(f'category must be one of: {valid_categories}')
+        return v
+
+
+class TradingRules(BaseModel):
+    """거래 규칙 스키마"""
+    stopLoss: Optional[List[TradingRule]] = Field(None, description="손절 규칙 목록")
+    takeProfit: Optional[List[TradingRule]] = Field(None, description="익절 규칙 목록")
+
+
 class BacktestRequest(BaseModel):
     """백테스트 요청 스키마"""
     start: datetime = Field(..., description="시작일")
@@ -192,6 +212,8 @@ class BacktestRequest(BaseModel):
     holdings: List[Holding] = Field(..., min_items=1, description="보유 종목 목록")
     rebalance_frequency: Optional[str] = Field("daily", description="리밸런싱 주기")
     callback_url: Optional[str] = Field(None, description="결과를 받을 콜백 URL (비동기 처리 시 필수)")
+    rules: Optional[TradingRules] = Field(None, description="손절/익절 규칙")
+    risk_free_rate: Optional[float] = Field(None, description="무위험 수익률 (연율, 미제공시 자동 결정)")
     
     @field_validator('holdings')
     @classmethod
@@ -266,6 +288,10 @@ class BacktestCallbackResponse(BaseModel):
     portfolio_snapshot: Optional['PortfolioSnapshotResponse'] = Field(None, description="포트폴리오 스냅샷")
     metrics: Optional['BacktestMetrics'] = Field(None, description="성과 지표")
     result_summary: Optional[List['ResultSummary']] = Field(None, description="결과 요약 데이터")
+    execution_logs: Optional[List['ExecutionLog']] = Field(None, description="손절/익절 실행 로그")
+    result_status: Optional[str] = Field(None, description="결과 상태")
+    benchmark_info: Optional[Dict[str, Any]] = Field(None, description="사용된 벤치마크 정보")
+    risk_free_rate_info: Optional[Dict[str, Any]] = Field(None, description="사용된 무위험 수익률 정보")
     # 실패 시: BacktestErrorResponse와 동일한 필드들  
     error: Optional['BacktestDataError'] = Field(None, description="오류 상세 정보")
     # 공통 필드
@@ -291,6 +317,17 @@ class ResultSummary(BaseModel):
     stocks: List[StockDailyData] = Field(..., description="종목별 일별 데이터")
 
 
+class ExecutionLog(BaseModel):
+    """손절/익절 실행 로그"""
+    date: str = Field(..., description="실행 날짜")
+    action: str = Field(..., description="실행 액션: STOP_LOSS, TAKE_PROFIT")
+    category: str = Field(..., description="규칙 카테고리")
+    value: float = Field(..., description="실제 값")
+    threshold: float = Field(..., description="임계값")
+    reason: str = Field(..., description="실행 사유")
+    portfolio_value: float = Field(..., description="포트폴리오 가치")
+
+
 class BacktestResponse(BaseModel):
     """백테스트 응답 스키마"""
     success: bool = Field(True, description="성공 여부")
@@ -299,6 +336,11 @@ class BacktestResponse(BaseModel):
     result_summary: List[ResultSummary] = Field(..., description="결과 요약 데이터")
     execution_time: float = Field(..., description="실행 시간 (초)")
     request_id: Optional[str] = Field(None, description="요청 ID")
+    execution_logs: List[ExecutionLog] = Field(default=[], description="손절/익절 실행 로그")
+    result_status: str = Field("COMPLETED", description="결과 상태: COMPLETED, LIQUIDATED")
+    benchmark_info: Optional[Dict[str, Any]] = Field(None, description="사용된 벤치마크 정보")
+    risk_free_rate_info: Optional[Dict[str, Any]] = Field(None, description="사용된 무위험 수익률 정보")
+    timestamp: datetime = Field(default_factory=get_kst_now, description="응답 생성 시각")
 
 
 # ------------------------------

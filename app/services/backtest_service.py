@@ -17,6 +17,9 @@ from app.models.schemas import (
     PortfolioSnapshotResponse, HoldingSnapshotResponse
 )
 from app.services.analysis_service import AnalysisService
+from app.services.trading_rules_service import TradingRulesService
+from app.services.benchmark_service import BenchmarkService
+from app.services.risk_free_rate_service import RiskFreeRateService
 from app.exceptions import MissingStockPriceDataException, InsufficientDataException
 from app.utils.logger import get_logger
 
@@ -69,8 +72,8 @@ class BacktestService:
                 )
             
             # 3. 백테스트 실행
-            portfolio_data, result_summary = await self._execute_backtest(
-                request, stock_prices
+            portfolio_data, result_summary, execution_logs, final_status, benchmark_info = await self._execute_backtest(
+                request, stock_prices, session
             )
             
             # 4. 성과 지표 계산
@@ -86,13 +89,20 @@ class BacktestService:
             
             logger.info(f"Backtest completed successfully", 
                        execution_time=f"{execution_time:.3f}s",
-                       portfolio_id=portfolio_snapshot.id)
+                       portfolio_id=portfolio_snapshot.id,
+                       final_status=final_status,
+                       execution_logs_count=len(execution_logs))
             
             return BacktestResponse(
                 portfolio_snapshot=portfolio_snapshot,
                 metrics=metrics,
                 result_summary=result_summary,
-                execution_time=execution_time
+                execution_time=execution_time,
+                request_id=f"req_{int(time.time() * 1000)}",  # 타임스탬프 기반 요청 ID
+                execution_logs=execution_logs,
+                result_status=final_status,
+                benchmark_info=benchmark_info,
+                risk_free_rate_info=risk_free_rate_info
             )
             
         except Exception as e:
@@ -206,12 +216,26 @@ class BacktestService:
     async def _execute_backtest(
         self, 
         request: BacktestRequest, 
-        stock_prices: pd.DataFrame
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]]]:
-        """백테스트 실행 (수량 기반 벡터화 연산)"""
+        stock_prices: pd.DataFrame,
+        session: AsyncSession
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str, Optional[Dict[str, Any]]]:
+        """백테스트 실행 (수량 기반 벡터화 연산 + 손절/익절 로직)"""
         
         # 포트폴리오 보유 수량 딕셔너리 생성
         quantities = {holding.code: holding.quantity for holding in request.holdings}
+        
+        # 평균 매수가 저장 (개별 수익률 계산용)
+        avg_prices = {}
+        for holding in request.holdings:
+            if holding.avg_price:
+                avg_prices[holding.code] = float(holding.avg_price)
+            else:
+                # 평균 매수가가 없으면 첫날 가격으로 설정
+                first_price = stock_prices[
+                    (stock_prices['stock_code'] == holding.code) & 
+                    (stock_prices['datetime'] == stock_prices['datetime'].min())
+                ]['close_price'].iloc[0]
+                avg_prices[holding.code] = float(first_price)
         
         # 피벗 테이블로 변환 (날짜 x 종목)
         price_pivot = stock_prices.pivot_table(
@@ -229,26 +253,88 @@ class BacktestService:
             aggfunc='first'
         )
         
-        # 공통 종목 필터링 (여기서 정의)
+        # 공통 종목 필터링
         common_stocks = price_pivot.columns.intersection(quantities.keys())
         price_data = price_pivot[common_stocks]
         
-        # 포트폴리오 가치 계산 (수량 기반)
-        portfolio_values, portfolio_returns = self._calculate_portfolio_values_by_quantity(
-            price_pivot, quantities
+        # 벤치마크 수익률 조회 (베타 계산용)
+        benchmark_returns, benchmark_info = await self._get_benchmark_returns_for_period(
+            request, session
         )
         
-        # 일별 종목별 데이터 생성
+        # 무위험 수익률 조회
+        risk_free_rates, risk_free_rate_info = await self._get_risk_free_rate_for_period(
+            request, session
+        )
+        
+        # 손절/익절 서비스 초기화
+        trading_rules_service = TradingRulesService() if request.rules else None
+        
+        # 일별 백테스트 실행
         portfolio_data = []
         result_summary = []
+        execution_logs = []
+        final_status = "COMPLETED"
         
-        for i, (date, value) in enumerate(portfolio_values.items()):
-            # 포트폴리오 데이터
+        for i, date in enumerate(price_pivot.index):
+            # 현재 포트폴리오 가치 계산
+            current_portfolio_value = 0
+            individual_values = {}
+            individual_prices = {}
+            individual_returns = {}
+            
+            for stock_code in common_stocks:
+                if pd.notna(price_data.loc[date, stock_code]):
+                    stock_price = price_data.loc[date, stock_code]
+                    stock_quantity = quantities[stock_code]
+                    stock_value = stock_price * stock_quantity
+                    
+                    current_portfolio_value += stock_value
+                    individual_values[stock_code] = stock_value
+                    individual_prices[stock_code] = stock_price
+                    
+                    # 개별 종목 수익률 계산 (평균 매수가 대비)
+                    if stock_code in avg_prices:
+                        stock_return = (stock_price - avg_prices[stock_code]) / avg_prices[stock_code]
+                        individual_returns[stock_code] = stock_return
+            
+            # 일별 수익률 계산
+            prev_value = portfolio_data[-1]['portfolio_value'] if portfolio_data else current_portfolio_value
+            daily_return = (current_portfolio_value - prev_value) / prev_value if prev_value > 0 else 0.0
+            
+            # 포트폴리오 데이터 추가
             portfolio_data.append({
                 'datetime': date,
-                'portfolio_value': float(value),
-                'daily_return': float(portfolio_returns.iloc[i]) if i < len(portfolio_returns) else 0.0
+                'portfolio_value': current_portfolio_value,
+                'daily_return': daily_return,
+                'quantities': quantities.copy()
             })
+            
+            # 손절/익절 규칙 체크
+            if trading_rules_service:
+                should_execute, daily_logs, status = await trading_rules_service.check_trading_rules(
+                    date=date,
+                    portfolio_data=portfolio_data,
+                    individual_values=individual_values,
+                    individual_prices=individual_prices,
+                    individual_returns=individual_returns,
+                    quantities=quantities,
+                    benchmark_returns=benchmark_returns,
+                    rules=request.rules
+                )
+                
+                if should_execute:
+                    execution_logs.extend(daily_logs)
+                    final_status = status
+                    
+                    # 포트폴리오 청산 (모든 수량을 0으로 설정)
+                    quantities = {code: 0 for code in quantities.keys()}
+                    
+                    # 청산된 상태로 마지막 데이터 업데이트
+                    portfolio_data[-1]['status'] = 'LIQUIDATED'
+                    portfolio_data[-1]['liquidation_reason'] = 'TRADING_RULES'
+                    
+                    break
             
             # 종목별 일별 데이터 생성
             daily_stocks = []
@@ -258,7 +344,7 @@ class BacktestService:
                     stock_return = returns_pivot.loc[date, stock_code] if pd.notna(returns_pivot.loc[date, stock_code]) else 0.0
                     stock_quantity = quantities[stock_code]
                     stock_value = stock_price * stock_quantity
-                    stock_weight = stock_value / value if value > 0 else 0.0
+                    stock_weight = stock_value / current_portfolio_value if current_portfolio_value > 0 else 0.0
                     
                     # 포트폴리오 수익률 기여도 계산
                     portfolio_contribution = stock_return * stock_weight if stock_weight > 0 else 0.0
@@ -270,18 +356,141 @@ class BacktestService:
                         'daily_return': float(stock_return),
                         'portfolio_weight': float(stock_weight),
                         'portfolio_contribution': float(portfolio_contribution),
-                        'quantity': stock_quantity
+                        'quantity': stock_quantity,
+                        'avg_price': avg_prices.get(stock_code, 0.0)
                     })
             
-            # 결과 요약 데이터 (종목별 데이터 포함)
+            # 결과 요약 데이터
             summary_item = {
                 'date': date.isoformat(),
-                'stocks': daily_stocks
+                'stocks': daily_stocks,
+                'portfolio_value': current_portfolio_value,
+                'quantities': quantities.copy()
             }
             
             result_summary.append(summary_item)
         
-        return portfolio_data, result_summary
+        return portfolio_data, result_summary, execution_logs, final_status, benchmark_info
+    
+    async def _get_benchmark_returns_for_period(
+        self,
+        request: BacktestRequest,
+        session: AsyncSession
+    ) -> Tuple[Optional[pd.Series], Optional[Dict[str, Any]]]:
+        """벤치마크 수익률 조회 (베타 계산용)"""
+        try:
+            benchmark_service = BenchmarkService()
+            
+            # 포트폴리오 구성 종목 분석하여 벤치마크 결정
+            holdings_data = [
+                {"code": holding.code, "quantity": holding.quantity}
+                for holding in request.holdings
+            ]
+            
+            benchmark_code = await benchmark_service.determine_benchmark(
+                holdings=holdings_data,
+                session=session
+            )
+            
+            # 벤치마크 수익률 조회
+            benchmark_returns = await benchmark_service.get_benchmark_returns(
+                benchmark_code=benchmark_code,
+                start_date=request.start,
+                end_date=request.end,
+                session=session
+            )
+            
+            # 벤치마크 정보 조회
+            benchmark_info = await benchmark_service.get_benchmark_info(
+                benchmark_code=benchmark_code,
+                session=session
+            )
+            
+            logger.info(
+                "Benchmark returns retrieved for backtest",
+                benchmark_code=benchmark_code,
+                data_points=len(benchmark_returns),
+                portfolio_size=len(request.holdings)
+            )
+            
+            return benchmark_returns, benchmark_info
+            
+        except Exception as e:
+            logger.warning(f"Failed to get benchmark returns: {str(e)}")
+            return None, None
+    
+    async def _get_risk_free_rate_for_period(
+        self,
+        request: BacktestRequest,
+        session: AsyncSession
+    ) -> Tuple[Optional[pd.Series], Optional[Dict[str, Any]]]:
+        """무위험 수익률 조회"""
+        try:
+            risk_free_rate_service = RiskFreeRateService()
+            
+            # 사용자가 직접 지정한 경우
+            if request.risk_free_rate is not None:
+                # 고정 금리를 일별 시계열로 변환
+                daily_rate = request.risk_free_rate / 365.0 / 100.0
+                dates = pd.date_range(start=request.start, end=request.end, freq='D')
+                risk_free_rates = pd.Series([daily_rate] * len(dates), index=dates)
+                
+                risk_free_rate_info = {
+                    'rate_type': 'USER_PROVIDED',
+                    'annual_rate': request.risk_free_rate,
+                    'daily_rate': daily_rate,
+                    'selection_reason': 'user_specified'
+                }
+                
+                logger.info(
+                    "Using user-provided risk-free rate",
+                    annual_rate=request.risk_free_rate
+                )
+                
+                return risk_free_rates, risk_free_rate_info
+            
+            # 자동 결정
+            rate_type, decision_info = await risk_free_rate_service.determine_risk_free_rate_type(
+                start_date=request.start,
+                end_date=request.end,
+                session=session
+            )
+            
+            # 무위험 수익률 조회
+            risk_free_rates = await risk_free_rate_service.get_risk_free_rate(
+                rate_type=rate_type,
+                start_date=request.start,
+                end_date=request.end,
+                session=session
+            )
+            
+            # 무위험 수익률 정보 조회
+            rate_info = await risk_free_rate_service.get_rate_info(
+                rate_type=rate_type,
+                session=session
+            )
+            
+            # 정보 통합
+            risk_free_rate_info = {
+                'rate_type': rate_type,
+                'decision_info': decision_info,
+                'rate_info': rate_info,
+                'data_points': len(risk_free_rates),
+                'avg_annual_rate': float(risk_free_rates.mean() * 365 * 100) if not risk_free_rates.empty else 0.0
+            }
+            
+            logger.info(
+                "Risk-free rate retrieved for backtest",
+                rate_type=rate_type,
+                data_points=len(risk_free_rates),
+                avg_annual_rate=risk_free_rate_info['avg_annual_rate']
+            )
+            
+            return risk_free_rates, risk_free_rate_info
+            
+        except Exception as e:
+            logger.warning(f"Failed to get risk-free rate: {str(e)}")
+            return None, None
     
     def _calculate_portfolio_returns(
         self, 
@@ -370,8 +579,10 @@ class BacktestService:
         # 변동성 (연환산)
         volatility = returns.std() * np.sqrt(252)
         
-        # 샤프 비율 (무위험 수익률 0% 가정)
-        sharpe_ratio = annualized_return / volatility if volatility > 0 else 0
+        # 샤프 비율 (무위험 수익률 고려)
+        # TODO: 무위험 수익률을 매개변수로 받아서 계산하도록 수정 필요
+        risk_free_rate = 0.0  # 임시로 0% 사용
+        sharpe_ratio = (annualized_return - risk_free_rate) / volatility if volatility > 0 else 0
         
         # 최대 낙폭 계산
         max_drawdown = self._calculate_max_drawdown(returns)
@@ -476,7 +687,7 @@ class BacktestService:
         portfolio_data: List[Dict[str, Any]], 
         portfolio_id: Optional[int] = None
     ) -> PortfolioSnapshotResponse:
-        """포트폴리오 스냅샷 응답 생성 (메모리만)"""
+        """포트폴리오 스냅샷 응답 생성"""
         if not portfolio_data:
             raise ValueError("포트폴리오 데이터가 없습니다.")
         
