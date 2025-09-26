@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_async_session
 from app.models.schemas import (
-    BacktestRequest, BacktestResponse, BacktestErrorResponse, 
+    BacktestRequest, BacktestErrorResponse, 
     BacktestDataError, MissingStockData,
     BacktestJobResponse, BacktestCallbackResponse
 )
@@ -29,173 +29,6 @@ router = APIRouter(prefix="/backtest", tags=["backtest"])
 async def get_backtest_service() -> BacktestService:
     """백테스트 서비스 의존성 주입"""
     return BacktestService()
-
-
-@router.post(
-    "/run",
-    response_model=BacktestResponse,
-    responses={
-        400: {"model": BacktestErrorResponse, "description": "잘못된 요청 또는 데이터 누락"},
-        500: {"model": BacktestErrorResponse, "description": "서버 내부 오류"}
-    },
-    summary="백테스트 실행",
-    description="포트폴리오 백테스트를 실행하고 성과 지표를 반환합니다."
-)
-async def run_backtest(
-    request: BacktestRequest,
-    session: AsyncSession = Depends(get_async_session),
-    backtest_service: BacktestService = Depends(get_backtest_service),
-    portfolio_id: Optional[int] = Query(None, description="포트폴리오 ID (선택사항)")
-) -> BacktestResponse:
-    """백테스트 실행"""
-    start_time = time.time()
-    
-    try:
-        logger.info(
-            "Backtest request received",
-            start_date=request.start.isoformat(),
-            end_date=request.end.isoformat(),
-            holdings_count=len(request.holdings),
-            portfolio_id=portfolio_id
-        )
-        
-        # 입력 검증
-        if request.start >= request.end:
-            raise HTTPException(
-                status_code=400,
-                detail="Start date must be before end date"
-            )
-        
-        if not request.holdings:
-            raise HTTPException(
-                status_code=400,
-                detail="At least one holding must be specified"
-            )
-        
-        # 백테스트 실행
-        result = await backtest_service.run_backtest(
-            request=request,
-            session=session,
-            portfolio_id=portfolio_id
-        )
-        
-        logger.info(
-            "Backtest completed successfully",
-            portfolio_snapshot_id=result.portfolio_snapshot.id,
-            execution_time=result.execution_time
-        )
-        
-        return result
-        
-    except MissingStockPriceDataException as e:
-        execution_time = time.time() - start_time
-        
-        logger.warning(
-            "Backtest failed due to missing stock price data",
-            missing_stocks_count=e.missing_stocks_count,
-            total_stocks=e.total_stocks,
-            requested_period=e.requested_period
-        )
-        
-        # 구조화된 오류 응답 생성
-        missing_data = [
-            MissingStockData(**stock_data) 
-            for stock_data in e.missing_stocks
-        ]
-        
-        error_response = BacktestErrorResponse(
-            success=False,
-            error=BacktestDataError(
-                error_type=e.error_type,
-                message=e.message,
-                missing_data=missing_data,
-                requested_period=e.requested_period,
-                total_stocks=e.total_stocks,
-                missing_stocks_count=e.missing_stocks_count
-            ),
-            execution_time=execution_time
-        )
-        
-        raise HTTPException(
-            status_code=400,
-            detail=error_response.model_dump()
-        )
-        
-    except BacktestDataException as e:
-        execution_time = time.time() - start_time
-        
-        logger.warning(f"Backtest data error: {str(e)}")
-        
-        # 기본 데이터 오류 응답
-        error_response = BacktestErrorResponse(
-            success=False,
-            error=BacktestDataError(
-                error_type=e.error_type,
-                message=e.message,
-                missing_data=[],
-                requested_period=f"{request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')}",
-                total_stocks=len(request.holdings),
-                missing_stocks_count=0
-            ),
-            execution_time=execution_time
-        )
-        
-        raise HTTPException(
-            status_code=400,
-            detail=error_response.model_dump()
-        )
-        
-    except ValueError as e:
-        execution_time = time.time() - start_time
-        logger.warning(f"Backtest validation error: {str(e)}")
-        
-        error_response = BacktestErrorResponse(
-            success=False,
-            error=BacktestDataError(
-                error_type="VALIDATION_ERROR",
-                message=str(e),
-                missing_data=[],
-                requested_period=f"{request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')}",
-                total_stocks=len(request.holdings),
-                missing_stocks_count=0
-            ),
-            execution_time=execution_time
-        )
-        
-        raise HTTPException(status_code=400, detail=error_response.model_dump())
-        
-    except HTTPException:
-        # HTTPException은 그대로 재발생
-        raise
-        
-    except Exception as e:
-        execution_time = time.time() - start_time
-        
-        logger.error(
-            "Backtest execution failed",
-            error=str(e),
-            error_type=type(e).__name__,
-            request_start=request.start.isoformat(),
-            request_end=request.end.isoformat(),
-            holdings_count=len(request.holdings),
-            portfolio_id=portfolio_id
-        )
-        
-        # 일반적인 서버 오류 응답
-        error_response = BacktestErrorResponse(
-            success=False,
-            error=BacktestDataError(
-                error_type="INTERNAL_ERROR",
-                message="백테스트 실행 중 예상치 못한 오류가 발생했습니다.",
-                missing_data=[],
-                requested_period=f"{request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')}",
-                total_stocks=len(request.holdings),
-                missing_stocks_count=0
-            ),
-            execution_time=execution_time
-        )
-        
-        raise HTTPException(status_code=500, detail=error_response.model_dump())
 
 
 @router.post(
@@ -303,7 +136,10 @@ async def run_backtest_and_callback(
             start=request.start,
             end=request.end,
             holdings=request.holdings,
-            rebalance_frequency=request.rebalance_frequency
+            rebalance_frequency=request.rebalance_frequency,
+            benchmark_code=request.benchmark_code,
+            risk_free_rate=request.risk_free_rate,
+            rules=request.rules
         )
         
         result = await backtest_service.run_backtest(
@@ -314,12 +150,13 @@ async def run_backtest_and_callback(
         
         execution_time = time.time() - start_time
         
-        # 성공 콜백 전송 - 기존 BacktestResponse와 동일한 구조
+        # 성공 콜백 전송 - BacktestResponse와 동일한 구조 + benchmark_metrics 포함
         callback_response = BacktestCallbackResponse(
             job_id=job_id,
             success=True,
             portfolio_snapshot=result.portfolio_snapshot,
             metrics=result.metrics,
+            benchmark_metrics=result.benchmark_metrics,
             result_summary=result.result_summary,
             execution_logs=result.execution_logs,
             result_status=result.result_status,
@@ -348,7 +185,7 @@ async def run_backtest_and_callback(
             execution_time=f"{execution_time:.3f}s"
         )
         
-        # 실패 콜백 전송 - 기존 BacktestErrorResponse와 동일한 구조
+        # 실패 콜백 전송 - BacktestErrorResponse와 동일한 구조
         from app.models.schemas import BacktestDataError
         
         callback_response = BacktestCallbackResponse(
@@ -356,6 +193,7 @@ async def run_backtest_and_callback(
             success=False,
             portfolio_snapshot=None,
             metrics=None,
+            benchmark_metrics=None,
             result_summary=None,
             error=BacktestDataError(
                 error_type="INTERNAL_ERROR",

@@ -1,12 +1,10 @@
-"""포트폴리오 분석 서비스 (MPT/CAPM)
+"""포트폴리오 분석 서비스 (MPT/CAPM) - 통합 버전
 
 개요:
 - 일별 가격에서 일별 수익률을 계산하고, 이를 바탕으로 연간 기준의 평균 수익과 동시 변동성을 추정합니다.
-- 단순하고 직관적인 휴리스틱으로 최소 변동성 포트폴리오와 최대 샤프 포트폴리오의 비중을 근사합니다.
-- 산출된 비중으로 기대수익, 위험도(표준편차), 샤프 비율, 시장 민감도(베타), 초과성과(젠센 알파)를 제공합니다.
-
-참고:
-- 본 구현은 설명과 초기 분석을 위해 안정적인 근사 방식을 사용하며, 복잡한 제약조건이나 정밀 최적화 대신 이해 용이성과 견고성을 우선합니다.
+- 최소 변동성 포트폴리오와 최대 샤프 포트폴리오의 비중을 계산합니다.
+- 벤치마크 비교와 고급 리스크 지표를 포함한 포트폴리오 분석을 제공합니다.
+- 기본 지표부터 고급 리스크 지표까지 모든 분석 기능을 하나의 응답으로 제공합니다.
 """
 
 from __future__ import annotations
@@ -20,11 +18,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.schemas import (
     AnalysisRequest,
-    AnalysisResponse,
-    PortfolioWeights,
-    AnalysisMetrics,
-    EnhancedAnalysisMetrics,
     EnhancedAnalysisResponse,
+    PortfolioWeights,
+    EnhancedAnalysisMetrics,
     BenchmarkComparison,
 )
 from app.models.stock import StockPrice
@@ -46,12 +42,11 @@ class AnalysisService:
         self,
         request: AnalysisRequest,
         session: AsyncSession,
-        use_enhanced: bool = False,
-    ) -> AnalysisResponse | EnhancedAnalysisResponse:
-        """분석 실행 (벤치마크 연동 가능)
+    ) -> EnhancedAnalysisResponse:
+        """분석 실행 (벤치마크 및 고급 지표 포함)
 
-        Args:
-            use_enhanced: True이면 실제 벤치마크와 무위험수익률을 사용한 고급 분석
+        모든 분석 기능을 포함하여 종합적인 포트폴리오 분석을 수행합니다.
+        벤치마크가 없더라도 기본 지표는 모두 계산되어 반환됩니다.
         """
 
         lookback_end = datetime.utcnow()
@@ -64,43 +59,28 @@ class AnalysisService:
         # 포트폴리오 가격 데이터 로드
         prices_df = await self._load_daily_prices(session, request, lookback_start, lookback_end)
         if prices_df.empty:
-            base_response = AnalysisResponse(
+            return EnhancedAnalysisResponse(
                 success=False,
                 min_variance=PortfolioWeights(weights={}),
                 max_sharpe=PortfolioWeights(weights={}),
                 metrics={},
+                risk_free_rate_used=0.0,
+                analysis_period={"start": lookback_start, "end": lookback_end},
                 notes="No price data available for requested holdings."
             )
-            
-            if use_enhanced:
-                return EnhancedAnalysisResponse(
-                    success=False,
-                    min_variance=PortfolioWeights(weights={}),
-                    max_sharpe=PortfolioWeights(weights={}),
-                    metrics={},
-                    risk_free_rate_used=0.0,
-                    analysis_period={"start": lookback_start, "end": lookback_end},
-                    notes="No price data available for requested holdings."
-                )
-            return base_response
 
-        # 벤치마크 및 무위험수익률 조회 (고급 분석 모드인 경우)
-        if use_enhanced:
-            benchmark_code = await self._determine_benchmark(request, benchmark_repo)
-            benchmark_returns = await benchmark_repo.get_benchmark_returns_series(
-                benchmark_code, lookback_start, lookback_end
-            )
-            risk_free_rate = await self._get_risk_free_rate(request, risk_free_repo, lookback_end)
-        else:
-            benchmark_returns = pd.Series(dtype=float)
-            risk_free_rate = request.risk_free_rate if request.risk_free_rate is not None else 0.0
-            benchmark_code = None
+        # 벤치마크 및 무위험수익률 조회
+        benchmark_code = await self._determine_benchmark(request, benchmark_repo)
+        benchmark_returns = await benchmark_repo.get_benchmark_returns_series(
+            benchmark_code, lookback_start, lookback_end
+        )
+        risk_free_rate = await self._get_risk_free_rate(request, risk_free_repo, lookback_end)
 
         # 포트폴리오 수익률 계산
         returns_df = prices_df.pct_change().fillna(0.0)
         
-        # 벤치마크와 시계열 동기화 (고급 분석 모드)
-        if use_enhanced and not benchmark_returns.empty:
+        # 벤치마크와 시계열 동기화
+        if not benchmark_returns.empty:
             returns_df, benchmark_returns = self._synchronize_time_series(returns_df, benchmark_returns)
 
         # 기본 통계 계산
@@ -111,54 +91,36 @@ class AnalysisService:
         min_var_w = self._min_variance_weights(cov_matrix)
         max_sharpe_w = self._max_sharpe_weights(expected_returns, cov_matrix, risk_free_rate)
 
-        # 성과 지표 계산
-        if use_enhanced:
-            mv_metrics = await self._calculate_enhanced_metrics(
-                returns_df, expected_returns, cov_matrix, min_var_w, 
-                benchmark_returns, risk_free_rate
-            )
-            ms_metrics = await self._calculate_enhanced_metrics(
-                returns_df, expected_returns, cov_matrix, max_sharpe_w, 
-                benchmark_returns, risk_free_rate
-            )
-            
-            # 벤치마크 비교 분석
-            benchmark_comparison = await self._calculate_benchmark_comparison(
-                returns_df, max_sharpe_w, benchmark_returns, benchmark_code
-            ) if benchmark_code else None
-            
-            metrics = {
-                "min_variance": mv_metrics,
-                "max_sharpe": ms_metrics,
-            }
+        # 성과 지표 계산 (모든 지표 포함)
+        mv_metrics = await self._calculate_enhanced_metrics(
+            returns_df, expected_returns, cov_matrix, min_var_w, 
+            benchmark_returns, risk_free_rate
+        )
+        ms_metrics = await self._calculate_enhanced_metrics(
+            returns_df, expected_returns, cov_matrix, max_sharpe_w, 
+            benchmark_returns, risk_free_rate
+        )
+        
+        # 벤치마크 비교 분석
+        benchmark_comparison = await self._calculate_benchmark_comparison(
+            returns_df, max_sharpe_w, benchmark_returns, benchmark_code
+        ) if benchmark_code and not benchmark_returns.empty else None
+        
+        metrics = {
+            "min_variance": mv_metrics,
+            "max_sharpe": ms_metrics,
+        }
 
-            return EnhancedAnalysisResponse(
-                success=True,
-                min_variance=PortfolioWeights(weights=min_var_w.to_dict()),
-                max_sharpe=PortfolioWeights(weights=max_sharpe_w.to_dict()),
-                metrics=metrics,
-                benchmark_comparison=benchmark_comparison,
-                risk_free_rate_used=risk_free_rate,
-                analysis_period={"start": lookback_start, "end": lookback_end},
-                notes=f"Analysis based on {benchmark_code} benchmark and {request.lookback_years}-year lookback period." if benchmark_code else None
-            )
-        else:
-            # 기존 방식 (하위 호환성)
-            mv_metrics = self._metrics_for_weights(returns_df, expected_returns, cov_matrix, min_var_w, risk_free_rate)
-            ms_metrics = self._metrics_for_weights(returns_df, expected_returns, cov_matrix, max_sharpe_w, risk_free_rate)
-
-            metrics = {
-                "min_variance": mv_metrics,
-                "max_sharpe": ms_metrics,
-            }
-
-            return AnalysisResponse(
-                success=True,
-                min_variance=PortfolioWeights(weights=min_var_w.to_dict()),
-                max_sharpe=PortfolioWeights(weights=max_sharpe_w.to_dict()),
-                metrics=metrics,
-                notes="Using basic analysis mode. Use enhanced analysis for benchmark comparison."
-            )
+        return EnhancedAnalysisResponse(
+            success=True,
+            min_variance=PortfolioWeights(weights=min_var_w.to_dict()),
+            max_sharpe=PortfolioWeights(weights=max_sharpe_w.to_dict()),
+            metrics=metrics,
+            benchmark_comparison=benchmark_comparison,
+            risk_free_rate_used=risk_free_rate,
+            analysis_period={"start": lookback_start, "end": lookback_end},
+            notes=f"Analysis based on {benchmark_code} benchmark and {request.lookback_years}-year lookback period." if benchmark_code else f"Analysis based on {request.lookback_years}-year lookback period."
+        )
 
     async def _load_daily_prices(
         self,
@@ -239,41 +201,6 @@ class AnalysisService:
             score = np.ones_like(score)
         w = score / score.sum()
         return pd.Series(w, index=cov.columns)
-
-    def _metrics_for_weights(
-        self,
-        returns_df: pd.DataFrame,
-        mu: pd.Series,
-        cov: pd.DataFrame,
-        w: pd.Series,
-        rf: float,
-    ) -> AnalysisMetrics:
-        # 포트폴리오 기대수익(연간 기준)을 계산합니다.
-        exp_ret = float(np.dot(w.values, mu.values))
-        # 포트폴리오의 위험도를 나타내는 분산과 표준편차를 계산합니다.
-        variance = float(np.dot(w.values, np.dot(cov.values, w.values)))
-        std_dev = float(np.sqrt(max(variance, 0.0)))
-        # 샤프 비율은 위험 대비 초과수익을 의미합니다.
-        sharpe = (exp_ret - rf) / std_dev if std_dev > 0 else 0.0
-
-        # 간단한 베타 근사: 시장 대리변수(종목 평균 일간 수익률) 대비 민감도를 계산합니다.
-        port_daily = returns_df.dot(w)
-        market_proxy = returns_df.mean(axis=1)
-        cov_pm = float(np.cov(port_daily, market_proxy)[0, 1])
-        var_m = float(np.var(market_proxy))
-        beta = cov_pm / var_m if var_m > 0 else 0.0
-
-        # CAPM 요구수익률과 젠센 알파(요구수익을 초과하는 성과)를 계산합니다.
-        req_return_capm = rf + beta * max(market_proxy.mean() * 252.0 - rf, 0.0)
-        jensen_alpha = exp_ret - req_return_capm
-
-        return AnalysisMetrics(
-            expected_return=exp_ret,
-            std_deviation=std_dev,
-            beta=beta,
-            sharpe_ratio=sharpe,
-            jensen_alpha=jensen_alpha,
-        )
 
     # 향상된 분석 메서드들
     async def _determine_benchmark(
