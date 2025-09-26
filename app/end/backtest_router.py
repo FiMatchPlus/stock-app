@@ -182,11 +182,16 @@ async def run_backtest_and_callback(
             "Background backtest failed",
             job_id=job_id,
             error=str(e),
-            execution_time=f"{execution_time:.3f}s"
+            execution_time=f"{execution_time:.3f}s",
+            exc_info=True
         )
         
         # 실패 콜백 전송 - BacktestErrorResponse와 동일한 구조
         from app.models.schemas import BacktestDataError
+        
+        # 데이터베이스 에러 타입 분류
+        error_type = "DATABASE_ERROR" if "Database error" in str(e) else "INTERNAL_ERROR"
+        error_message = str(e)
         
         callback_response = BacktestCallbackResponse(
             job_id=job_id,
@@ -196,10 +201,10 @@ async def run_backtest_and_callback(
             benchmark_metrics=None,
             result_summary=None,
             error=BacktestDataError(
-                error_type="INTERNAL_ERROR",
-                message=str(e),
+                error_type=error_type,
+                message=error_message,
                 missing_data=[],
-                requested_period="",
+                requested_period=f"{request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')}",
                 total_stocks=len(request.holdings),
                 missing_stocks_count=0
             ),
@@ -214,35 +219,65 @@ async def send_callback(callback_url: str, response: BacktestCallbackResponse):
     """콜백 URL로 결과 전송"""
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
+            # 응답 상태에 따라 적절한 헤더와 상태 정보 추가
+            headers = {
+                "Content-Type": "application/json",
+                "X-Backtest-Status": "success" if response.success else "error",
+                "X-Backtest-Job-ID": response.job_id
+            }
+            
+            # 에러 응답인 경우 추가 헤더 설정
+            if not response.success:
+                error_type = getattr(response.error, 'error_type', 'UNKNOWN') if response.error else 'UNKNOWN'
+                headers["X-Backtest-Error-Type"] = error_type
+                
             callback_result = await client.post(
                 callback_url,
                 json=response.model_dump(mode='json'),
-                headers={"Content-Type": "application/json"}
+                headers=headers
             )
             
-            if callback_result.status_code == 200:
-                logger.info(
-                    "Callback sent successfully",
+            # 성공/실패에 따른 로깅 개선
+            expected_status_codes = {
+                True: 200,   # 성공: 200 OK
+                False: 400   # 에러: 400 Bad Request (클라이언트 측에서 정상적인 오류로 처리)
+            }
+            expected_status = expected_status_codes[response.success]
+            
+            if callback_result.status_code == expected_status:
+                if response.success:
+                    logger.info(
+                        "Callback sent successfully",
+                        job_id=response.job_id,
+                        callback_url=callback_url,
+                        status_code=callback_result.status_code
+                    )
+                else:
+                    logger.warning(
+                        "Callback sent with error response",
+                        job_id=response.job_id,
+                        callback_url=callback_url,
+                        status_code=callback_result.status_code,
+                        error_type=getattr(response.error, 'error_type', None) if response.error else None
+                    )
+            else:
+                # 예상과 다른 상태 코드를 받은 경우
+                status_msg = "successfully" if response.success else "with error response"
+                logger.warning(
+                    f"Callback {status_msg} but response status code differs",
                     job_id=response.job_id,
                     callback_url=callback_url,
+                    expected_status=expected_status,
+                    actual_status=callback_result.status_code,
                     success=response.success
                 )
-            else:
-                logger.warning(
-                    "Callback failed",
-                    job_id=response.job_id,
-                    callback_url=callback_url,
-                    status_code=callback_result.status_code,
-                    response_text=callback_result.text
-                )
-                # HTTP 에러도 예외로 처리하여 상위에서 실패로 처리되도록 함
-                raise Exception(f"Callback HTTP error: {callback_result.status_code} - {callback_result.text}")
                 
     except Exception as e:
         logger.error(
             "Failed to send callback",
             job_id=response.job_id,
             callback_url=callback_url,
+            success=response.success,
             error=str(e)
         )
         # 콜백 전송 실패 시 예외를 다시 발생시켜 상위에서 실패로 처리되도록 함

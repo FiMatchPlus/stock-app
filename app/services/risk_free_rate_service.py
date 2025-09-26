@@ -311,6 +311,9 @@ class RiskFreeRateService:
                 rate_type=rate_type,
                 error=str(e)
             )
+            # 트랜잭션 실패로 인한 에러는 더 명확한 메시지와 함께 전파
+            if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
+                raise Exception(f"Database transaction failed during risk-free rate retrieval: {str(e)}")
             return pd.Series(dtype=float)
     
     async def get_available_rate_types(self, session: AsyncSession) -> List[str]:
@@ -383,4 +386,7 @@ class RiskFreeRateService:
             
         except Exception as e:
             logger.error(f"Failed to get rate info: {str(e)}")
+            # 트랜잭션 실패로 인한 에러는 더 명확한 메시지와 함께 전파
+            if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
+                raise Exception(f"Database transaction failed during risk-free rate retrieval: {str(e)}")
             return None

@@ -276,6 +276,17 @@ class BacktestService:
             request, session
         )
         
+        # 중요 데이터 조회 실패 시 에러 처리
+        critical_data_failure = []
+        if benchmark_returns is None or benchmark_returns.empty:
+            critical_data_failure.append("benchmark returns")
+        if risk_free_rates is None or risk_free_rates.empty:
+            critical_data_failure.append("risk-free rates")
+            
+        if critical_data_failure:
+            logger.error(f"Critical data retrieval failure: {', '.join(critical_data_failure)}")
+            raise Exception(f"Failed to retrieve critical data: {', '.join(critical_data_failure)}. This may be due to database transaction errors or missing data.")
+        
         # 손절/익절 서비스 초기화
         trading_rules_service = TradingRulesService() if request.rules else None
         
@@ -417,8 +428,9 @@ class BacktestService:
             return benchmark_returns, benchmark_info
             
         except Exception as e:
-            logger.warning(f"Failed to get benchmark returns: {str(e)}")
-            return None, None
+            logger.error(f"Failed to get benchmark returns: {str(e)}")
+            # 데이터베이스 에러를 상위로 전파하여 백테스트 실패 처리
+            raise Exception(f"Database error during benchmark retrieval: {str(e)}")
     
     async def _get_risk_free_rate_for_period(
         self,
@@ -490,8 +502,9 @@ class BacktestService:
             return risk_free_rates, risk_free_rate_info
             
         except Exception as e:
-            logger.warning(f"Failed to get risk-free rate: {str(e)}")
-            return None, None
+            logger.error(f"Failed to get risk-free rate: {str(e)}")
+            # 데이터베이스 에러를 상위로 전파하여 백테스트 실패 처리
+            raise Exception(f"Database error during risk-free rate retrieval: {str(e)}")
     
     def _calculate_portfolio_returns(
         self, 
