@@ -5,7 +5,7 @@ from datetime import datetime
 import pandas as pd
 import numpy as np
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, and_, asc
+from sqlalchemy import select, and_, asc, desc
 
 from app.models.stock import BenchmarkPrice, Stock
 from app.utils.logger import get_logger
@@ -247,7 +247,7 @@ class BenchmarkService:
             query = (
                 select(BenchmarkPrice)
                 .where(BenchmarkPrice.index_code == benchmark_code)
-                .order_by(asc(BenchmarkPrice.datetime.desc()))
+                .order_by(BenchmarkPrice.datetime.desc())
                 .limit(1)
             )
             
@@ -274,7 +274,7 @@ class BenchmarkService:
             max_query = (
                 select(BenchmarkPrice.datetime.label('max_date'))
                 .where(BenchmarkPrice.index_code == benchmark_code)
-                .order_by(asc(BenchmarkPrice.datetime.desc()))
+                .order_by(BenchmarkPrice.datetime.desc())
                 .limit(1)
             )
             

@@ -240,7 +240,7 @@ class BacktestService:
         df = df.sort_values(['datetime', 'stock_code'])
         
         # 결측값 처리 (전진 채우기)
-        df['close_price'] = df.groupby('stock_code')['close_price'].fillna(method='ffill')
+        df['close_price'] = df.groupby('stock_code')['close_price'].ffill()
         
         # 수익률 계산 (벡터화 연산)
         df['returns'] = df.groupby('stock_code')['close_price'].pct_change()
