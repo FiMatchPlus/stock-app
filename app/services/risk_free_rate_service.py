@@ -67,8 +67,17 @@ class RiskFreeRateService:
             # 백테스트 기간 계산 (일 단위)
             backtest_days = (end_date - start_date).days
             
-            # 사용 가능한 금리 유형 조회
-            available_rates = await self.get_available_rate_types(session)
+            # 트랜잭션 에러 감지 시 새 독립 세션으로 재시도
+            try:
+                available_rates = await self.get_available_rate_types(session)
+            except Exception as e:
+                if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
+                    # 새 독립 세션 생성하여 재시도
+                    from app.models.database import AsyncSessionLocal
+                    async with AsyncSessionLocal() as new_session:
+                        available_rates = await self.get_available_rate_types(new_session)
+                else:
+                    raise
             
             # 기간 분류
             period_classification = self._classify_backtest_period(backtest_days)
@@ -78,10 +87,21 @@ class RiskFreeRateService:
                 period_classification, available_rates
             )
             
-            # 데이터 가용성 검증
-            rate_availability = await self._check_rate_availability(
-                suitable_rates, start_date, end_date, session
-            )
+            # 데이터 가용성 검증 (트랜잭션 에러 시 재시도)
+            try:
+                rate_availability = await self._check_rate_availability(
+                    suitable_rates, start_date, end_date, session
+                )
+            except Exception as e:
+                if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
+                    # 새 독립 세션 생성하여 재시도
+                    from app.models.database import AsyncSessionLocal
+                    async with AsyncSessionLocal() as new_session:
+                        rate_availability = await self._check_rate_availability(
+                            suitable_rates, start_date, end_date, new_session
+                        )
+                else:
+                    raise
             
             # 최적 금리 유형 결정
             selected_rate_type, selection_reason = self._select_best_rate(
@@ -266,8 +286,19 @@ class RiskFreeRateService:
                 .order_by(asc(RiskFreeRate.datetime))
             )
             
-            result = await session.execute(query)
-            rate_data = result.scalars().all()
+            # 트랜잭션 에러 감지 시 새 독립 세션으로 재시도
+            try:
+                result = await session.execute(query)
+                rate_data = result.scalars().all()
+            except Exception as e:
+                if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
+                    # 새 독립 세션 생성하여 재시도
+                    from app.models.database import AsyncSessionLocal
+                    async with AsyncSessionLocal() as new_session:
+                        result = await new_session.execute(query)
+                        rate_data = result.scalars().all()
+                else:
+                    raise
             
             if not rate_data:
                 logger.warning(
@@ -320,10 +351,21 @@ class RiskFreeRateService:
         """사용 가능한 금리 유형 목록 조회"""
         try:
             query = select(RiskFreeRate.rate_type).distinct()
-            result = await session.execute(query)
-            rate_types = [row[0] for row in result.fetchall()]
             
-            return sorted(rate_types)
+            # 트랜잭션 에러 감지 시 새 독립 세션으로 재시도
+            try:
+                result = await session.execute(query)
+                rate_types = [row[0] for row in result.fetchall()]
+                return sorted(rate_types)
+            except Exception as e:
+                if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
+                    from app.models.database import AsyncSessionLocal
+                    async with AsyncSessionLocal() as new_session:
+                        result = await new_session.execute(query)
+                        rate_types = [row[0] for row in result.fetchall()]
+                        return sorted(rate_types)
+                else:
+                    raise
             
         except Exception as e:
             logger.error(f"Failed to get available rate types: {str(e)}")
@@ -344,8 +386,18 @@ class RiskFreeRateService:
                 .limit(1)
             )
             
-            result = await session.execute(query)
-            latest_rate = result.scalar_one_or_none()
+            # 트랜잭션 에러 감지 시 새 독립 세션으로 재시도
+            try:
+                result = await session.execute(query)
+                latest_rate = result.scalar_one_or_none()
+            except Exception as e:
+                if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
+                    from app.models.database import AsyncSessionLocal
+                    async with AsyncSessionLocal() as new_session:
+                        result = await new_session.execute(query)
+                        latest_rate = result.scalar_one_or_none()
+                else:
+                    raise
             
             if not latest_rate:
                 return None
@@ -358,9 +410,6 @@ class RiskFreeRateService:
                 .limit(1)
             )
             
-            result = await session.execute(min_max_query)
-            min_data = result.fetchone()
-            
             max_query = (
                 select(RiskFreeRate.datetime)
                 .where(RiskFreeRate.rate_type == rate_type)
@@ -368,8 +417,22 @@ class RiskFreeRateService:
                 .limit(1)
             )
             
-            result = await session.execute(max_query)
-            max_data = result.fetchone()
+            # 트랜잭션 에러 감지 시 새 독립 세션으로 재시도
+            try:
+                result = await session.execute(min_max_query)
+                min_data = result.fetchone()
+                result = await session.execute(max_query)
+                max_data = result.fetchone()
+            except Exception as e:
+                if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
+                    from app.models.database import AsyncSessionLocal
+                    async with AsyncSessionLocal() as new_session:
+                        result = await new_session.execute(min_max_query)
+                        min_data = result.fetchone()
+                        result = await new_session.execute(max_query)
+                        max_data = result.fetchone()
+                else:
+                    raise
             
             return {
                 'rate_type': rate_type,

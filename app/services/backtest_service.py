@@ -31,6 +31,34 @@ class BacktestService:
     
     def __init__(self):
         self.thread_pool = ThreadPoolExecutor(max_workers=4)
+    
+    async def _retry_with_new_session_if_transaction_failed(
+        self, 
+        operation_func, 
+        session: AsyncSession,
+        service_name: str,
+        **kwargs
+    ):
+        """
+        트랜잭션 에러 감지시 새 독립 세션으로 재시도
+        
+        Args:
+            operation_func: 실행할 함수 (session을 첫 번째 인자로 받음)
+            session: 원본 세션 
+            service_name: 로깅용 서비스명
+            **kwargs: operation_func에 전달할 추가 인자들
+        """
+        try:
+            return await operation_func(session, **kwargs)
+        except Exception as e:
+            if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
+                logger.warning(f"Primary session failed for {service_name}, retrying with fresh session", error=str(e))
+                # 새 독립 세션으로 재시도
+                from app.models.database import AsyncSessionLocal
+                async with AsyncSessionLocal() as new_session:
+                    return await operation_func(new_session, **kwargs)
+            else:
+                raise
         
     async def run_backtest(
         self, 
@@ -392,30 +420,52 @@ class BacktestService:
         
         return portfolio_data, result_summary, execution_logs, final_status, benchmark_info
     
+    async def _execute_benchmark_operations(
+        self,
+        benchmark_service: BenchmarkService,
+        benchmark_code: str,
+        start_date: datetime,
+        end_date: datetime,
+        session: AsyncSession
+    ):
+        """벤치마크 관련 연산 수행"""
+        # 벤치마크 수익률 조회
+        benchmark_returns = await benchmark_service.get_benchmark_returns(
+            benchmark_code=benchmark_code,
+            start_date=start_date,
+            end_date=end_date,
+            session=session
+        )
+        
+        # 벤치마크 정보 조회
+        benchmark_info = await benchmark_service.get_benchmark_info(
+            benchmark_code=benchmark_code,
+            session=session
+        )
+        
+        return benchmark_returns, benchmark_info
+
     async def _get_benchmark_returns_for_period(
         self,
         request: BacktestRequest,
         session: AsyncSession
     ) -> Tuple[Optional[pd.Series], Optional[Dict[str, Any]]]:
-        """벤치마크 수익률 조회 (베타 계산용)"""
+        """벤치마크 수익률 조회 - 트랜잭션 에러 시 독립 세션으로 재시도"""
         try:
             benchmark_service = BenchmarkService()
             
             # 사용자가 지정한 벤치마크 코드 사용
             benchmark_code = request.benchmark_code or "KOSPI"
             
-            # 벤치마크 수익률 조회
-            benchmark_returns = await benchmark_service.get_benchmark_returns(
+            # 트랜잭션 에러 감지 시 새 독립 세션으로 재시도
+            benchmark_returns, benchmark_info = await self._retry_with_new_session_if_transaction_failed(
+                operation_func=self._execute_benchmark_operations,
+                session=session,
+                service_name="benchmark",
+                benchmark_service=benchmark_service,
                 benchmark_code=benchmark_code,
                 start_date=request.start,
-                end_date=request.end,
-                session=session
-            )
-            
-            # 벤치마크 정보 조회
-            benchmark_info = await benchmark_service.get_benchmark_info(
-                benchmark_code=benchmark_code,
-                session=session
+                end_date=request.end
             )
             
             logger.info(
@@ -437,7 +487,7 @@ class BacktestService:
         request: BacktestRequest,
         session: AsyncSession
     ) -> Tuple[Optional[pd.Series], Optional[Dict[str, Any]]]:
-        """무위험 수익률 조회"""
+        """무위험 수익률 조회 - 트랜잭션 에러 시 독립 세션으로 재시도"""
         try:
             risk_free_rate_service = RiskFreeRateService()
             
@@ -462,26 +512,54 @@ class BacktestService:
                 
                 return risk_free_rates, risk_free_rate_info
             
-            # 자동 결정
-            rate_type, decision_info = await risk_free_rate_service.determine_risk_free_rate_type(
-                start_date=request.start,
-                end_date=request.end,
-                session=session
-            )
-            
-            # 무위험 수익률 조회
-            risk_free_rates = await risk_free_rate_service.get_risk_free_rate(
-                rate_type=rate_type,
-                start_date=request.start,
-                end_date=request.end,
-                session=session
-            )
-            
-            # 무위험 수익률 정보 조회
-            rate_info = await risk_free_rate_service.get_rate_info(
-                rate_type=rate_type,
-                session=session
-            )
+            # 트랜잭션 에러 감지 시 새 독립 세션으로 전체 재실행
+            try:
+                # 자동 결정
+                rate_type, decision_info = await risk_free_rate_service.determine_risk_free_rate_type(
+                    start_date=request.start,
+                    end_date=request.end,
+                    session=session
+                )
+                
+                # 무위험 수익률 조회
+                risk_free_rates = await risk_free_rate_service.get_risk_free_rate(
+                    rate_type=rate_type,
+                    start_date=request.start,
+                    end_date=request.end,
+                    session=session
+                )
+                
+                # 무위험 수익률 정보 조회
+                rate_info = await risk_free_rate_service.get_rate_info(
+                    rate_type=rate_type,
+                    session=session
+                )
+                
+            except Exception as e:
+                if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
+                    logger.warning("Primary session failed, retrying with fresh session", error=str(e))
+                    # 새 독립 세션으로 전체 재시도
+                    from app.models.database import AsyncSessionLocal
+                    async with AsyncSessionLocal() as new_session:
+                        rate_type, decision_info = await risk_free_rate_service.determine_risk_free_rate_type(
+                            start_date=request.start,
+                            end_date=request.end,
+                            session=new_session
+                        )
+                        
+                        risk_free_rates = await risk_free_rate_service.get_risk_free_rate(
+                            rate_type=rate_type,
+                            start_date=request.start,
+                            end_date=request.end,
+                            session=new_session
+                        )
+                        
+                        rate_info = await risk_free_rate_service.get_rate_info(
+                            rate_type=rate_type,
+                            session=new_session
+                        )
+                else:
+                    raise
             
             # 정보 통합
             risk_free_rate_info = {
