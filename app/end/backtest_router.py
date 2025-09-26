@@ -321,6 +321,10 @@ async def run_backtest_and_callback(
             portfolio_snapshot=result.portfolio_snapshot,
             metrics=result.metrics,
             result_summary=result.result_summary,
+            execution_logs=result.execution_logs,
+            result_status=result.result_status,
+            benchmark_info=result.benchmark_info,
+            risk_free_rate_info=result.risk_free_rate_info,
             error=None,
             execution_time=execution_time,
             request_id=job_id
