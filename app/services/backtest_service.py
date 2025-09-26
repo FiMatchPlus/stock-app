@@ -13,7 +13,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from app.models.stock import StockPrice
 from app.models.schemas import (
-    BacktestRequest, BacktestResponse, BacktestMetrics,
+    BacktestRequest, BacktestResponse, BacktestMetrics, BenchmarkMetrics,
     PortfolioSnapshotResponse, HoldingSnapshotResponse
 )
 from app.services.analysis_service import AnalysisService
@@ -79,7 +79,15 @@ class BacktestService:
             # 4. 성과 지표 계산
             metrics = await self._calculate_metrics(result_summary)
             
-            # 5. 포트폴리오 스냅샷 생성 (메모리만)
+            # 5. 벤치마크 지표 계산
+            benchmark_metrics = await self._calculate_benchmark_metrics(
+                request, result_summary, session
+            )
+            
+            # 6. 무위험수익률 정보 초기화
+            risk_free_rate_info = None
+            
+            # 7. 포트폴리오 스냅샷 생성 (메모리만)
             portfolio_snapshot = self._create_portfolio_snapshot_response(
                 request, portfolio_data, portfolio_id
             )
@@ -96,6 +104,7 @@ class BacktestService:
             return BacktestResponse(
                 portfolio_snapshot=portfolio_snapshot,
                 metrics=metrics,
+                benchmark_metrics=benchmark_metrics,
                 result_summary=result_summary,
                 execution_time=execution_time,
                 request_id=f"req_{int(time.time() * 1000)}",  # 타임스탬프 기반 요청 ID
@@ -381,16 +390,8 @@ class BacktestService:
         try:
             benchmark_service = BenchmarkService()
             
-            # 포트폴리오 구성 종목 분석하여 벤치마크 결정
-            holdings_data = [
-                {"code": holding.code, "quantity": holding.quantity}
-                for holding in request.holdings
-            ]
-            
-            benchmark_code = await benchmark_service.determine_benchmark(
-                holdings=holdings_data,
-                session=session
-            )
+            # 사용자가 지정한 벤치마크 코드 사용
+            benchmark_code = request.benchmark_code or "KOSPI"
             
             # 벤치마크 수익률 조회
             benchmark_returns = await benchmark_service.get_benchmark_returns(
@@ -808,4 +809,111 @@ class BacktestService:
             })
         
         return metrics
+    
+    async def _calculate_benchmark_metrics(
+        self,
+        request: BacktestRequest,
+        result_summary: List[Dict[str, Any]],
+        session: AsyncSession
+    ) -> Optional[BenchmarkMetrics]:
+        """벤치마크 성과 지표 계산"""
+        try:
+            benchmark_service = BenchmarkService()
+            
+            # 벤치마크 코드 가져오기
+            benchmark_code = request.benchmark_code or "KOSPI"
+            
+            # 벤치마크 수익률 조회
+            benchmark_returns = await benchmark_service.get_benchmark_returns(
+                benchmark_code=benchmark_code,
+                start_date=request.start,
+                end_date=request.end,
+                session=session
+            )
+            
+            if benchmark_returns is None or benchmark_returns.empty:
+                return None
+            
+            # 벤치마크 기본 지표 계산
+            benchmark_total_return = float((benchmark_returns.cumprod()[-1] - 1.0) * 100)
+            benchmark_volatility = float(benchmark_returns.std() * np.sqrt(252.0) * 100)
+            
+            # 벤치마크 최고가/최저가 조회
+            benchmark_prices = await self._get_benchmark_prices_for_period(
+                benchmark_code, request.start, request.end, session
+            )
+            
+            benchmark_max_price = 0.0
+            benchmark_min_price = 0.0
+            if benchmark_prices is not None and not benchmark_prices.empty:
+                benchmark_max_price = float(benchmark_prices.max())
+                benchmark_min_price = float(benchmark_prices.min())
+            
+            # 포트폴리오 수익률 계산
+            portfolio_returns = []
+            for rs in result_summary:
+                daily_return = sum(stock['portfolio_contribution'] for stock in rs['stocks'])
+                portfolio_returns.append(daily_return)
+            
+            portfolio_returns = np.array(portfolio_returns)
+            
+            # 알파 계산 (포트폴리오 수익률 - 벤치마크 수익률)
+            if len(portfolio_returns) == len(benchmark_returns):
+                alpha = float((portfolio_returns.mean() - benchmark_returns.mean()) * 252.0 * 100)
+            else:
+                alpha = 0.0
+            
+            # 벤치마크 일일 평균 수익률
+            benchmark_daily_average = float(benchmark_returns.mean() * 100)
+            
+            return BenchmarkMetrics(
+                benchmark_total_return=benchmark_total_return,
+                benchmark_volatility=benchmark_volatility,
+                benchmark_max_price=benchmark_max_price,
+                benchmark_min_price=benchmark_min_price,
+                alpha=alpha,
+                benchmark_daily_average=benchmark_daily_average
+            )
+            
+        except Exception as e:
+            logger.error(f"Failed to calculate benchmark metrics: {str(e)}")
+            return None
+    
+    async def _get_benchmark_prices_for_period(
+        self,
+        benchmark_code: str,
+        start_date: datetime,
+        end_date: datetime,
+        session: AsyncSession
+    ) -> Optional[pd.Series]:
+        """벤치마크 지수 가격 조회"""
+        try:
+            from app.models.stock import BenchmarkPrice
+            from sqlalchemy import select
+            
+            query = select(BenchmarkPrice).where(
+                and_(
+                    BenchmarkPrice.index_code == benchmark_code,
+                    BenchmarkPrice.datetime >= start_date,
+                    BenchmarkPrice.datetime <= end_date
+                )
+            ).order_by(BenchmarkPrice.datetime)
+            
+            result = await session.execute(query)
+            benchmark_prices = result.scalars().all()
+            
+            if not benchmark_prices:
+                return None
+            
+            dates = []
+            prices = []
+            for price in benchmark_prices:
+                dates.append(price.datetime)
+                prices.append(float(price.close_price))
+            
+            return pd.Series(prices, index=dates)
+            
+        except Exception as e:
+            logger.error(f"Failed to get benchmark prices: {str(e)}")
+            return None
 

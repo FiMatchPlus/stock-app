@@ -214,6 +214,7 @@ class BacktestRequest(BaseModel):
     callback_url: Optional[str] = Field(None, description="결과를 받을 콜백 URL (비동기 처리 시 필수)")
     rules: Optional[TradingRules] = Field(None, description="손절/익절 규칙")
     risk_free_rate: Optional[float] = Field(None, description="무위험 수익률 (연율, 미제공시 자동 결정)")
+    benchmark_code: Optional[str] = Field("KOSPI", description="벤치마크 지수 코드 (미제공시 KOSPI 기본값)")
     
     @field_validator('holdings')
     @classmethod
@@ -273,6 +274,16 @@ class BacktestMetrics(BaseModel):
     profit_loss_ratio: Decimal = Field(..., description="손익비")
 
 
+class BenchmarkMetrics(BaseModel):
+    """벤치마크 성과 지표 스키마"""
+    benchmark_total_return: float = Field(..., description="벤치마크 총 수익률")
+    benchmark_volatility: float = Field(..., description="벤치마크 수익률 변동성")
+    benchmark_max_price: float = Field(..., description="벤치마크 최고가")
+    benchmark_min_price: float = Field(..., description="벤치마크 최저가")
+    alpha: float = Field(..., description="벤치마크 대비 포트폴리오 초과수익률")
+    benchmark_daily_average: float = Field(..., description="벤치마크 일일 평균 수익률")
+
+
 class BacktestJobResponse(BaseModel):
     """비동기 백테스트 작업 시작 응답"""
     job_id: str = Field(..., description="작업 ID")
@@ -287,6 +298,7 @@ class BacktestCallbackResponse(BaseModel):
     success: Optional[bool] = Field(None, description="성공 여부")
     portfolio_snapshot: Optional['PortfolioSnapshotResponse'] = Field(None, description="포트폴리오 스냅샷")
     metrics: Optional['BacktestMetrics'] = Field(None, description="성과 지표")
+    benchmark_metrics: Optional['BenchmarkMetrics'] = Field(None, description="벤치마크 성과 지표")
     result_summary: Optional[List['ResultSummary']] = Field(None, description="결과 요약 데이터")
     execution_logs: Optional[List['ExecutionLog']] = Field(None, description="손절/익절 실행 로그")
     result_status: Optional[str] = Field(None, description="결과 상태")
@@ -333,6 +345,7 @@ class BacktestResponse(BaseModel):
     success: bool = Field(True, description="성공 여부")
     portfolio_snapshot: PortfolioSnapshotResponse
     metrics: Optional[BacktestMetrics] = None
+    benchmark_metrics: Optional[BenchmarkMetrics] = None
     result_summary: List[ResultSummary] = Field(..., description="결과 요약 데이터")
     execution_time: float = Field(..., description="실행 시간 (초)")
     request_id: Optional[str] = Field(None, description="요청 ID")
@@ -464,4 +477,3 @@ class EnhancedAnalysisResponse(BaseModel):
     risk_free_rate_used: float = Field(..., description="사용된 무위험수익률")
     analysis_period: Dict[str, datetime] = Field(..., description="분석 기간")
     notes: Optional[str] = Field(None, description="참고 사항")
-
