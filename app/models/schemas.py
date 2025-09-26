@@ -366,24 +366,6 @@ class PortfolioWeights(BaseModel):
     weights: Dict[str, float] = Field(..., description="종목코드별 비중 (합계 1.0)")
 
 
-class AnalysisMetrics(BaseModel):
-    """포트폴리오 성과 지표 (MPT/CAPM)"""
-    expected_return: float = Field(..., description="기대수익률 (연환산)")
-    std_deviation: float = Field(..., description="표준편차 (연환산)")
-    beta: float = Field(..., description="베타 (벤치마크 대비)")
-    sharpe_ratio: float = Field(..., description="샤프 비율")
-    jensen_alpha: float = Field(..., description="젠센 알파")
-
-
-class AnalysisResponse(BaseModel):
-    """포트폴리오 분석 응답"""
-    success: bool = Field(True, description="성공 여부")
-    min_variance: PortfolioWeights = Field(..., description="최소분산 포트폴리오 비중")
-    max_sharpe: PortfolioWeights = Field(..., description="최대 샤프 포트폴리오 비중")
-    metrics: Dict[str, AnalysisMetrics] = Field(..., description="포트폴리오명 별 성과 지표")
-    notes: Optional[str] = Field(None, description="참고 사항")
-
-
 # ------------------------------
 # Benchmark & Risk-Free Rate Schemas
 # ------------------------------

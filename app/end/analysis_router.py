@@ -7,8 +7,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_async_session
 from app.models.schemas import (
-    AnalysisRequest, AnalysisResponse, 
-    EnhancedAnalysisResponse, BenchmarkPriceResponse, RiskFreeRateResponse
+    AnalysisRequest,
+    EnhancedAnalysisResponse,
+    BenchmarkPriceResponse,
+    RiskFreeRateResponse
 )
 from app.services.analysis_service import AnalysisService
 from app.services.data_collection_service import DataCollectionService
@@ -33,15 +35,25 @@ async def get_data_collection_service() -> DataCollectionService:
 
 @router.post(
     "/run",
-    response_model=AnalysisResponse,
+    response_model=EnhancedAnalysisResponse,
     summary="포트폴리오 분석 실행",
-    description="보유 종목 수량 기반으로 MPT/CAPM 분석을 수행하고 결과를 반환합니다."
+    description="보유 종목 수량 기반으로 MPT/CAPM 분석을 수행하고 결과를 반환합니다. 벤치마크 비교 분석도 포함됩니다."
 )
 async def run_analysis(
     request: AnalysisRequest,
     session: AsyncSession = Depends(get_async_session),
     analysis_service: AnalysisService = Depends(get_analysis_service),
-) -> AnalysisResponse:
+) -> EnhancedAnalysisResponse:
+    """포트폴리오 분석 실행
+    
+    기본 분석과 고급 분석을 모두 포함하여 포트폴리오 성과를 종합적으로 분석합니다.
+    
+    제공 기능:
+    - 포트폴리오 최적화 (최소 변동성, 최대 샤프)
+    - 기본 성과 지표 (기대수익률, 변동성, 샤프 비율 등)
+    - 고급 리스크 지표 (베타, 알파, 트래킹 에러, 소르티노 비율 등)
+    - 벤치마크 비교 분석 (선택적)
+    """
     try:
         if not request.holdings:
             raise HTTPException(status_code=400, detail="At least one holding must be specified")
@@ -52,30 +64,6 @@ async def run_analysis(
         raise
     except Exception as e:
         logger.error("Failed to run analysis", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post(
-    "/advanced", 
-    response_model=EnhancedAnalysisResponse,
-    summary="고급 포트폴리오 분석 실행",
-    description="벤치마크 비교와 고급 리스크 지표를 포함한 포트폴리오 분석을 수행합니다."
-)
-async def run_advanced_analysis(
-    request: AnalysisRequest,
-    session: AsyncSession = Depends(get_async_session),
-    analysis_service: AnalysisService = Depends(get_analysis_service),
-) -> EnhancedAnalysisResponse:
-    try:
-        if not request.holdings:
-            raise HTTPException(status_code=400, detail="At least one holding must be specified")
-
-        result = await analysis_service.run_analysis(request, session, use_enhanced=True)
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to run advanced analysis", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
