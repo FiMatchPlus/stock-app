@@ -422,11 +422,11 @@ class BacktestService:
     
     async def _execute_benchmark_operations(
         self,
+        session: AsyncSession,
         benchmark_service: BenchmarkService,
         benchmark_code: str,
         start_date: datetime,
-        end_date: datetime,
-        session: AsyncSession
+        end_date: datetime
     ):
         """벤치마크 관련 연산 수행"""
         # 벤치마크 수익률 조회
