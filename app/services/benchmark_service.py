@@ -204,6 +204,9 @@ class BenchmarkService:
                 benchmark_code=benchmark_code,
                 error=str(e)
             )
+            # 트랜잭션 실패로 인한 에러는 더 명확한 메시지와 함께 전파
+            if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
+                raise Exception(f"Database transaction failed during benchmark retrieval: {str(e)}")
             return pd.Series(dtype=float)
     
     async def get_available_benchmarks(self, session: AsyncSession) -> List[str]:
