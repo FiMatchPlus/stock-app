@@ -128,91 +128,95 @@ async def run_backtest_and_callback(
     """백그라운드에서 백테스트 실행 및 콜백 전송"""
     start_time = time.time()
     
-    try:
-        logger.info(f"Starting background backtest", job_id=job_id)
-        
-        # 백테스트 실행 (callback_url 제거한 요청으로)
-        backtest_request = BacktestRequest(
-            start=request.start,
-            end=request.end,
-            holdings=request.holdings,
-            rebalance_frequency=request.rebalance_frequency,
-            benchmark_code=request.benchmark_code,
-            risk_free_rate=request.risk_free_rate,
-            rules=request.rules
-        )
-        
-        result = await backtest_service.run_backtest(
-            request=backtest_request,
-            session=session,
-            portfolio_id=portfolio_id
-        )
-        
-        execution_time = time.time() - start_time
-        
-        # 성공 콜백 전송 - BacktestResponse와 동일한 구조 + benchmark_metrics 포함
-        callback_response = BacktestCallbackResponse(
-            job_id=job_id,
-            success=True,
-            portfolio_snapshot=result.portfolio_snapshot,
-            metrics=result.metrics,
-            benchmark_metrics=result.benchmark_metrics,
-            result_summary=result.result_summary,
-            execution_logs=result.execution_logs,
-            result_status=result.result_status,
-            benchmark_info=result.benchmark_info,
-            risk_free_rate_info=result.risk_free_rate_info,
-            error=None,
-            execution_time=execution_time,
-            request_id=job_id
-        )
-        
-        await send_callback(request.callback_url, callback_response)
-        
-        logger.info(
-            "Background backtest completed successfully",
-            job_id=job_id,
-            execution_time=f"{execution_time:.3f}s"
-        )
-        
-    except Exception as e:
-        execution_time = time.time() - start_time
-        
-        logger.error(
-            "Background backtest failed",
-            job_id=job_id,
-            error=str(e),
-            execution_time=f"{execution_time:.3f}s",
-            exc_info=True
-        )
-        
-        # 실패 콜백 전송 - BacktestErrorResponse와 동일한 구조
-        from app.models.schemas import BacktestDataError
-        
-        # 데이터베이스 에러 타입 분류
-        error_type = "DATABASE_ERROR" if "Database error" in str(e) else "INTERNAL_ERROR"
-        error_message = str(e)
-        
-        callback_response = BacktestCallbackResponse(
-            job_id=job_id,
-            success=False,
-            portfolio_snapshot=None,
-            metrics=None,
-            benchmark_metrics=None,
-            result_summary=None,
-            error=BacktestDataError(
-                error_type=error_type,
-                message=error_message,
-                missing_data=[],
-                requested_period=f"{request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')}",
-                total_stocks=len(request.holdings),
-                missing_stocks_count=0
-            ),
-            execution_time=execution_time,
-            request_id=job_id
-        )
-        
-        await send_callback(request.callback_url, callback_response)
+    # 독립적인 세션 생성하여 트랜잭션 충돌 방지
+    from app.models.database import AsyncSessionLocal
+    
+    async with AsyncSessionLocal() as backtest_session:
+        try:
+            logger.info(f"Starting background backtest", job_id=job_id)
+            
+            # 백테스트 실행 (callback_url 제거한 요청으로)
+            backtest_request = BacktestRequest(
+                start=request.start,
+                end=request.end,
+                holdings=request.holdings,
+                rebalance_frequency=request.rebalance_frequency,
+                benchmark_code=request.benchmark_code,
+                risk_free_rate=request.risk_free_rate,
+                rules=request.rules
+            )
+            
+            result = await backtest_service.run_backtest(
+                request=backtest_request,
+                session=backtest_session,  # 새로운 독립 세션 사용
+                portfolio_id=portfolio_id
+            )
+            
+            execution_time = time.time() - start_time
+            
+            # 성공 콜백 전송 - BacktestResponse와 동일한 구조 + benchmark_metrics 포함
+            callback_response = BacktestCallbackResponse(
+                job_id=job_id,
+                success=True,
+                portfolio_snapshot=result.portfolio_snapshot,
+                metrics=result.metrics,
+                benchmark_metrics=result.benchmark_metrics,
+                result_summary=result.result_summary,
+                execution_logs=result.execution_logs,
+                result_status=result.result_status,
+                benchmark_info=result.benchmark_info,
+                risk_free_rate_info=result.risk_free_rate_info,
+                error=None,
+                execution_time=execution_time,
+                request_id=job_id
+            )
+            
+            await send_callback(request.callback_url, callback_response)
+            
+            logger.info(
+                "Background backtest completed successfully",
+                job_id=job_id,
+                execution_time=f"{execution_time:.3f}s"
+            )
+            
+        except Exception as e:
+            execution_time = time.time() - start_time
+            
+            logger.error(
+                "Background backtest failed",
+                job_id=job_id,
+                error=str(e),
+                execution_time=f"{execution_time:.3f}s",
+                exc_info=True
+            )
+            
+            # 실패 콜백 전송 - BacktestErrorResponse와 동일한 구조
+            from app.models.schemas import BacktestDataError
+            
+            # 데이터베이스 에러 타입 분류
+            error_type = "DATABASE_ERROR" if "Database error" in str(e) else "INTERNAL_ERROR"
+            error_message = str(e)
+            
+            callback_response = BacktestCallbackResponse(
+                job_id=job_id,
+                success=False,
+                portfolio_snapshot=None,
+                metrics=None,
+                benchmark_metrics=None,
+                result_summary=None,
+                error=BacktestDataError(
+                    error_type=error_type,
+                    message=error_message,
+                    missing_data=[],
+                    requested_period=f"{request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')}",
+                    total_stocks=len(request.holdings),
+                    missing_stocks_count=0
+                ),
+                execution_time=execution_time,
+                request_id=job_id
+            )
+            
+            await send_callback(request.callback_url, callback_response)
 
 
 async def send_callback(callback_url: str, response: BacktestCallbackResponse):
