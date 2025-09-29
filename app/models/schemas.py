@@ -168,12 +168,15 @@ class BacktestDataError(BaseModel):
     timestamp: datetime = Field(default_factory=get_kst_now, description="오류 발생 시간")
 
 
-class BacktestErrorResponse(BaseModel):
-    """백테스트 오류 응답 스키마"""
-    success: bool = Field(False, description="성공 여부")
-    error: BacktestDataError = Field(..., description="오류 상세 정보")
-    execution_time: float = Field(..., description="실행 시간 (초)")
-    request_id: Optional[str] = Field(None, description="요청 ID")
+class BacktestDataError(BaseModel):
+    """백테스트 데이터 오류 정보"""
+    error_type: str = Field(..., description="오류 유형")
+    message: str = Field(..., description="오류 메시지")
+    missing_data: List[MissingStockData] = Field(..., description="누락된 데이터 목록")
+    requested_period: str = Field(..., description="요청된 기간")
+    total_stocks: int = Field(..., description="총 요청 종목 수")
+    missing_stocks_count: int = Field(..., description="데이터 누락 종목 수")
+    timestamp: datetime = Field(default_factory=get_kst_now, description="오류 발생 시간")
 
 
 # 백테스트 관련 스키마
@@ -215,6 +218,7 @@ class BacktestRequest(BaseModel):
     rules: Optional[TradingRules] = Field(None, description="손절/익절 규칙")
     risk_free_rate: Optional[float] = Field(None, description="무위험 수익률 (연율, 미제공시 자동 결정)")
     benchmark_code: Optional[str] = Field("KOSPI", description="벤치마크 지수 코드 (미제공시 KOSPI 기본값)")
+    backtest_id: Optional[str] = Field(None, description="클라이언트에서 제공하는 백테스트 ID (콜백 시 그대로 반환)")
     
     @field_validator('holdings')
     @classmethod
@@ -292,7 +296,7 @@ class BacktestJobResponse(BaseModel):
 
 
 class BacktestCallbackResponse(BaseModel):
-    """백테스트 완료 콜백 응답 스키마 - 기존 BacktestResponse/BacktestErrorResponse와 동일한 구조"""
+    """백테스트 완료 콜백 응답 스키마"""
     job_id: str = Field(..., description="작업 ID")
     # 성공 시: BacktestResponse와 동일한 필드들
     success: Optional[bool] = Field(None, description="성공 여부")
@@ -304,11 +308,11 @@ class BacktestCallbackResponse(BaseModel):
     result_status: Optional[str] = Field(None, description="결과 상태")
     benchmark_info: Optional[Dict[str, Any]] = Field(None, description="사용된 벤치마크 정보")
     risk_free_rate_info: Optional[Dict[str, Any]] = Field(None, description="사용된 무위험 수익률 정보")
-    # 실패 시: BacktestErrorResponse와 동일한 필드들  
+    # 실패 시: 에러 정보 포함
     error: Optional['BacktestDataError'] = Field(None, description="오류 상세 정보")
     # 공통 필드
     execution_time: float = Field(..., description="실행 시간 (초)")
-    request_id: Optional[str] = Field(None, description="요청 ID")
+    backtest_id: Optional[str] = Field(None, description="클라이언트에서 제공한 백테스트 ID")
     timestamp: datetime = Field(default_factory=get_kst_now, description="완료 시각")
 
 
@@ -348,11 +352,11 @@ class BacktestResponse(BaseModel):
     benchmark_metrics: Optional[BenchmarkMetrics] = None
     result_summary: List[ResultSummary] = Field(..., description="결과 요약 데이터")
     execution_time: float = Field(..., description="실행 시간 (초)")
-    request_id: Optional[str] = Field(None, description="요청 ID")
     execution_logs: List[ExecutionLog] = Field(default=[], description="손절/익절 실행 로그")
     result_status: str = Field("COMPLETED", description="결과 상태: COMPLETED, LIQUIDATED")
     benchmark_info: Optional[Dict[str, Any]] = Field(None, description="사용된 벤치마크 정보")
     risk_free_rate_info: Optional[Dict[str, Any]] = Field(None, description="사용된 무위험 수익률 정보")
+    backtest_id: Optional[str] = Field(None, description="클라이언트에서 제공한 백테스트 ID")
     timestamp: datetime = Field(default_factory=get_kst_now, description="응답 생성 시각")
 
 
