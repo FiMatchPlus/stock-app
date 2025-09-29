@@ -215,6 +215,7 @@ class BacktestRequest(BaseModel):
     rules: Optional[TradingRules] = Field(None, description="손절/익절 규칙")
     risk_free_rate: Optional[float] = Field(None, description="무위험 수익률 (연율, 미제공시 자동 결정)")
     benchmark_code: Optional[str] = Field("KOSPI", description="벤치마크 지수 코드 (미제공시 KOSPI 기본값)")
+    backtest_id: Optional[str] = Field(None, description="클라이언트에서 제공하는 백테스트 ID (콜백 시 그대로 반환)")
     
     @field_validator('holdings')
     @classmethod
@@ -309,6 +310,7 @@ class BacktestCallbackResponse(BaseModel):
     # 공통 필드
     execution_time: float = Field(..., description="실행 시간 (초)")
     request_id: Optional[str] = Field(None, description="요청 ID")
+    backtest_id: Optional[str] = Field(None, description="클라이언트에서 제공한 백테스트 ID")
     timestamp: datetime = Field(default_factory=get_kst_now, description="완료 시각")
 
 

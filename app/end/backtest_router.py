@@ -168,7 +168,8 @@ async def run_backtest_and_callback(
                 risk_free_rate_info=result.risk_free_rate_info,
                 error=None,
                 execution_time=execution_time,
-                request_id=job_id
+                request_id=job_id,
+                backtest_id=request.backtest_id
             )
             
             await send_callback(request.callback_url, callback_response)
@@ -213,7 +214,8 @@ async def run_backtest_and_callback(
                     missing_stocks_count=0
                 ),
                 execution_time=execution_time,
-                request_id=job_id
+                request_id=job_id,
+                backtest_id=request.backtest_id
             )
             
             await send_callback(request.callback_url, callback_response)
