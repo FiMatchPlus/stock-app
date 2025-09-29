@@ -218,7 +218,7 @@ class BacktestRequest(BaseModel):
     rules: Optional[TradingRules] = Field(None, description="손절/익절 규칙")
     risk_free_rate: Optional[float] = Field(None, description="무위험 수익률 (연율, 미제공시 자동 결정)")
     benchmark_code: Optional[str] = Field("KOSPI", description="벤치마크 지수 코드 (미제공시 KOSPI 기본값)")
-    backtest_id: Optional[str] = Field(None, description="클라이언트에서 제공하는 백테스트 ID (콜백 시 그대로 반환)")
+    backtest_id: Optional[int] = Field(None, description="클라이언트에서 제공하는 백테스트 ID (콜백 시 그대로 반환)")
     
     @field_validator('holdings')
     @classmethod
@@ -312,7 +312,7 @@ class BacktestCallbackResponse(BaseModel):
     error: Optional['BacktestDataError'] = Field(None, description="오류 상세 정보")
     # 공통 필드
     execution_time: float = Field(..., description="실행 시간 (초)")
-    backtest_id: Optional[str] = Field(None, description="클라이언트에서 제공한 백테스트 ID")
+    backtest_id: Optional[int] = Field(None, description="클라이언트에서 제공한 백테스트 ID")
     timestamp: datetime = Field(default_factory=get_kst_now, description="완료 시각")
 
 
@@ -356,7 +356,7 @@ class BacktestResponse(BaseModel):
     result_status: str = Field("COMPLETED", description="결과 상태: COMPLETED, LIQUIDATED")
     benchmark_info: Optional[Dict[str, Any]] = Field(None, description="사용된 벤치마크 정보")
     risk_free_rate_info: Optional[Dict[str, Any]] = Field(None, description="사용된 무위험 수익률 정보")
-    backtest_id: Optional[str] = Field(None, description="클라이언트에서 제공한 백테스트 ID")
+    backtest_id: Optional[int] = Field(None, description="클라이언트에서 제공한 백테스트 ID")
     timestamp: datetime = Field(default_factory=get_kst_now, description="응답 생성 시각")
 
 
