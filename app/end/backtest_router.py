@@ -11,9 +11,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_async_session
 from app.models.schemas import (
-    BacktestRequest, BacktestErrorResponse, 
+    BacktestRequest, 
     BacktestDataError, MissingStockData,
-    BacktestJobResponse, BacktestCallbackResponse
+    BacktestJobResponse, BacktestCallbackResponse, BacktestResponse
 )
 from app.exceptions import MissingStockPriceDataException, BacktestDataException
 from app.services.backtest_service import BacktestService
@@ -34,10 +34,6 @@ async def get_backtest_service() -> BacktestService:
 @router.post(
     "/start",
     response_model=BacktestJobResponse,
-    responses={
-        400: {"model": BacktestErrorResponse, "description": "잘못된 요청"},
-        500: {"model": BacktestErrorResponse, "description": "서버 내부 오류"}
-    },
     summary="비동기 백테스트 시작",
     description="백테스트를 백그라운드에서 실행하고 완료 시 콜백 URL로 결과를 전송합니다."
 )
@@ -118,6 +114,77 @@ async def start_backtest_async(
         )
 
 
+@router.post(
+    "/run",
+    response_model=BacktestResponse,
+    summary="동기 백테스트 실행",
+    description="백테스트를 즉시 실행하고 결과를 반환합니다."
+)
+async def run_backtest_sync(
+    request: BacktestRequest,
+    session: AsyncSession = Depends(get_async_session),
+    backtest_service: BacktestService = Depends(get_backtest_service),
+    portfolio_id: Optional[int] = Query(None, description="포트폴리오 ID (선택사항)")
+) -> BacktestResponse:
+    """동기 백테스트 실행"""
+    try:
+        # 입력 검증
+        if request.start >= request.end:
+            raise HTTPException(
+                status_code=400,
+                detail="Start date must be before end date"
+            )
+        
+        if not request.holdings:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one holding must be specified"
+            )
+        
+        logger.info(
+            "Sync backtest request received",
+            start_date=request.start.isoformat(),
+            end_date=request.end.isoformat(),
+            holdings_count=len(request.holdings),
+            portfolio_id=portfolio_id,
+            backtest_id=request.backtest_id
+        )
+        
+        # 백테스트 실행
+        result = await backtest_service.run_backtest(
+            request=request,
+            session=session,
+            portfolio_id=portfolio_id
+        )
+        
+        logger.info(
+            "Sync backtest completed successfully",
+            execution_time=f"{result.execution_time:.3f}s",
+            portfolio_id=result.portfolio_snapshot.portfolio_id,
+            backtest_id=result.backtest_id
+        )
+        
+        return result
+        
+    except HTTPException:
+        raise
+        
+    except Exception as e:
+        logger.error(
+            "Failed to run sync backtest",
+            error=str(e),
+            request_start=request.start.isoformat(),
+            request_end=request.end.isoformat(),
+            holdings_count=len(request.holdings),
+            backtest_id=request.backtest_id
+        )
+        
+        raise HTTPException(
+            status_code=500,
+            detail="백테스트 실행 중 오류가 발생했습니다."
+        )
+
+
 async def run_backtest_and_callback(
     job_id: str,
     request: BacktestRequest,
@@ -168,7 +235,6 @@ async def run_backtest_and_callback(
                 risk_free_rate_info=result.risk_free_rate_info,
                 error=None,
                 execution_time=execution_time,
-                request_id=job_id,
                 backtest_id=request.backtest_id
             )
             
@@ -191,7 +257,7 @@ async def run_backtest_and_callback(
                 exc_info=True
             )
             
-            # 실패 콜백 전송 - BacktestErrorResponse와 동일한 구조
+            # 실패 콜백 전송
             from app.models.schemas import BacktestDataError
             
             # 데이터베이스 에러 타입 분류
@@ -214,7 +280,6 @@ async def run_backtest_and_callback(
                     missing_stocks_count=0
                 ),
                 execution_time=execution_time,
-                request_id=job_id,
                 backtest_id=request.backtest_id
             )
             

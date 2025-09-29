@@ -135,11 +135,11 @@ class BacktestService:
                 benchmark_metrics=benchmark_metrics,
                 result_summary=result_summary,
                 execution_time=execution_time,
-                request_id=f"req_{int(time.time() * 1000)}",  # 타임스탬프 기반 요청 ID
                 execution_logs=execution_logs,
                 result_status=final_status,
                 benchmark_info=benchmark_info,
-                risk_free_rate_info=risk_free_rate_info
+                risk_free_rate_info=risk_free_rate_info,
+                backtest_id=request.backtest_id
             )
             
         except Exception as e:
