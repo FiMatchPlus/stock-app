@@ -926,7 +926,7 @@ class BacktestService:
                 return None
             
             # 벤치마크 기본 지표 계산
-            benchmark_total_return = float((benchmark_returns.cumprod()[-1] - 1.0) * 100)
+            benchmark_total_return = float(((1 + benchmark_returns).cumprod()[-1] - 1.0) * 100)
             benchmark_volatility = float(benchmark_returns.std() * np.sqrt(252.0) * 100)
             
             # 벤치마크 최고가/최저가 조회
