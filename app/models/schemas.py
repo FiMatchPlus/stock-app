@@ -196,7 +196,7 @@ class TradingRule(BaseModel):
     @field_validator('category')
     @classmethod
     def validate_category(cls, v):
-        valid_categories = ['BETA', 'MDD', 'VAR', 'ONEPROFIT']
+        valid_categories = ['BETA', 'MDD', 'VAR', 'ONEPROFIT', 'LOSS_LIMIT']
         if v not in valid_categories:
             raise ValueError(f'category must be one of: {valid_categories}')
         return v

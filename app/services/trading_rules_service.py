@@ -107,6 +107,11 @@ class TradingRulesService:
                         portfolio_data, rule.value
                     )
                 
+                elif rule.category == "LOSS_LIMIT":
+                    should_trigger, value, threshold = await self._check_loss_limit_rule(
+                        portfolio_data, rule.value
+                    )
+                
                 else:
                     logger.warning(f"Unknown stop loss category: {rule.category}")
                     continue
@@ -287,3 +292,38 @@ class TradingRulesService:
         should_trigger = max_return > threshold
         
         return should_trigger, max_return, threshold
+    
+    async def _check_loss_limit_rule(
+        self,
+        portfolio_data: List[Dict[str, Any]],
+        threshold: float
+    ) -> Tuple[bool, float, float]:
+        """손실 한계선 규칙 체크
+        
+        Args:
+            portfolio_data: 포트폴리오 일별 데이터
+            threshold: 손실 한계선 (음수, 예: -0.15는 -15%)
+            
+        Returns:
+            Tuple[bool, float, float]: (손절 실행 여부, 현재 총 수익률, 임계값)
+        """
+        
+        if len(portfolio_data) < 1:
+            return False, 0.0, threshold
+        
+        # 초기 포트폴리오 가치 (첫 번째 데이터)
+        initial_value = portfolio_data[0]['portfolio_value']
+        
+        # 현재 포트폴리오 가치 (마지막 데이터)
+        current_value = portfolio_data[-1]['portfolio_value']
+        
+        if initial_value <= 0:
+            return False, 0.0, threshold
+        
+        # 총 수익률 계산 (초기값 대비)
+        total_return = (current_value - initial_value) / initial_value
+        
+        # 손실률이 임계값을 초과하면 손절 (threshold는 음수값)
+        should_trigger = total_return < threshold
+        
+        return should_trigger, total_return, threshold
