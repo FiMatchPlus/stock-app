@@ -454,6 +454,10 @@ class EnhancedAnalysisMetrics(BaseModel):
     upside_beta: float = Field(..., description="상승 베타")
     downside_beta: float = Field(..., description="하락 베타")
     
+    # VaR/CVaR 지표
+    var_value: float = Field(..., description="VaR 95% (Value at Risk)")
+    cvar_value: float = Field(..., description="CVaR 95% (Conditional Value at Risk)")
+    
     # 벤치마크 상관관계
     correlation_with_benchmark: float = Field(..., description="벤치마크와의 상관관계")
 

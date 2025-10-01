@@ -187,6 +187,7 @@ class MovingWindowAnalysisService:
             'min_variance_weights': [],
             'max_sharpe_weights': [],
             'portfolio_returns': [],
+            'window_var_cvar': [],  # 윈도우별 VaR/CVaR 저장
             'expected_returns': [],
             'covariances': []
         }
@@ -216,15 +217,22 @@ class MovingWindowAnalysisService:
             if end_idx < total_days - 1:
                 next_period_prices = prices_df.iloc[end_idx:end_idx + step_days]
                 next_period_returns = next_period_prices.pct_change().fillna(0.0)
-                # 다음 기간의 평균 수익률
-                next_period_avg_returns = next_period_returns.mean()
                 
-                # 최적화된 비중으로 포트폴리오 수익률 계산
-                mv_portfolio_return = float(min_var_weights.dot(next_period_avg_returns))
-                ms_portfolio_return = float(max_sharpe_weights.dot(next_period_avg_returns))
+                # 최적화된 비중으로 포트폴리오 수익률 계산 (일별)
+                mv_portfolio_returns = next_period_returns.dot(min_var_weights)
+                ms_portfolio_returns = next_period_returns.dot(max_sharpe_weights)
+                
+                # 윈도우별 VaR/CVaR 계산
+                mv_var, mv_cvar = self._calculate_var_cvar(mv_portfolio_returns)
+                ms_var, ms_cvar = self._calculate_var_cvar(ms_portfolio_returns)
+                
+                # 다음 기간의 평균 수익률
+                mv_portfolio_return = float(mv_portfolio_returns.mean())
+                ms_portfolio_return = float(ms_portfolio_returns.mean())
             else:
                 mv_portfolio_return = 0.0
                 ms_portfolio_return = 0.0
+                mv_var = mv_cvar = ms_var = ms_cvar = 0.0
             
             # 결과 저장
             optimization_results['dates'].append(window_date)
@@ -233,6 +241,10 @@ class MovingWindowAnalysisService:
             optimization_results['portfolio_returns'].append({
                 'min_variance': mv_portfolio_return,
                 'max_sharpe': ms_portfolio_return
+            })
+            optimization_results['window_var_cvar'].append({
+                'min_variance': {'var': mv_var, 'cvar': mv_cvar},
+                'max_sharpe': {'var': ms_var, 'cvar': ms_cvar}
             })
             optimization_results['expected_returns'].append(expected_returns.to_dict())
             optimization_results['covariances'].append(cov_matrix.to_dict())
@@ -422,6 +434,11 @@ class MovingWindowAnalysisService:
         max_drawdown = self._calculate_max_drawdown(portfolio_returns)
         calmar_ratio = expected_return / abs(max_drawdown) if max_drawdown != 0 else 0.0
         
+        # VaR/CVaR 계산 (윈도우별 평균)
+        var_value, cvar_value = self._calculate_window_averaged_var_cvar(
+            optimization_results['window_var_cvar'], portfolio_name
+        )
+        
         # 정보비율
         information_ratio = (expected_return - benchmark_annual_return) / tracking_error if tracking_error > 0 else 0.0
         
@@ -445,6 +462,8 @@ class MovingWindowAnalysisService:
             downside_deviation=downside_deviation,
             upside_beta=upside_beta,
             downside_beta=downside_beta,
+            var_value=var_value,
+            cvar_value=cvar_value,
             correlation_with_benchmark=correlation,
         )
 
@@ -551,6 +570,75 @@ class MovingWindowAnalysisService:
         except Exception as e:
             logger.error(f"Error calculating max drawdown: {str(e)}")
             return 0.0
+
+    def _calculate_var_cvar(self, returns: pd.Series) -> Tuple[float, float]:
+        """VaR 95% 및 CVaR 95% 계산"""
+        try:
+            if len(returns) < 10:  # 충분한 데이터가 있어야 VaR 계산 가능
+                return 0.0, 0.0
+            
+            # 수익률을 numpy 배열로 변환
+            returns_array = returns.values
+            
+            # 95% VaR 계산 (5% 분위수)
+            var_95 = np.percentile(returns_array, 5)
+            
+            # 95% CVaR 계산 (VaR보다 작은 값들의 평균)
+            cvar_95 = returns_array[returns_array <= var_95].mean()
+            
+            # 연환산으로 변환
+            var_value = float(var_95 * np.sqrt(252))  # 연환산
+            cvar_value = float(cvar_95 * np.sqrt(252)) if not np.isnan(cvar_95) else 0.0  # 연환산
+            
+            return var_value, cvar_value
+            
+        except Exception as e:
+            logger.error(f"Error calculating VaR/CVaR: {str(e)}")
+            return 0.0, 0.0
+
+    def _calculate_window_averaged_var_cvar(
+        self, 
+        window_var_cvar_data: List[Dict[str, Dict[str, float]]], 
+        portfolio_name: str
+    ) -> Tuple[float, float]:
+        """EWMA 가중 평균 기반 윈도우별 VaR/CVaR 계산"""
+        try:
+            if not window_var_cvar_data:
+                return 0.0, 0.0
+            
+            n_windows = len(window_var_cvar_data)
+            
+            # EWMA 가중치 계산 (감쇠계수 0.94 - 금융업계 표준)
+            decay_factor = 0.94
+            weights = np.array([decay_factor ** (n_windows - 1 - i) for i in range(n_windows)])
+            weights = weights / weights.sum()  # 정규화
+            
+            # 해당 포트폴리오의 VaR/CVaR 값들 수집
+            var_values = []
+            cvar_values = []
+            
+            for i, window_data in enumerate(window_var_cvar_data):
+                if portfolio_name in window_data:
+                    var_val = window_data[portfolio_name].get('var', 0.0)
+                    cvar_val = window_data[portfolio_name].get('cvar', 0.0)
+                    
+                    # 유효한 값만 수집 (0.0이 아닌 값)
+                    if var_val != 0.0:
+                        var_values.append((var_val, weights[i]))
+                    if cvar_val != 0.0:
+                        cvar_values.append((cvar_val, weights[i]))
+            
+            # EWMA 가중 평균 계산
+            weighted_var = sum(val * weight for val, weight in var_values) if var_values else 0.0
+            weighted_cvar = sum(val * weight for val, weight in cvar_values) if cvar_values else 0.0
+            
+            logger.debug(f"EWMA-weighted VaR/CVaR for {portfolio_name}: VaR={weighted_var:.4f}, CVaR={weighted_cvar:.4f} (from {len(var_values)} windows, decay={decay_factor})")
+            
+            return weighted_var, weighted_cvar
+            
+        except Exception as e:
+            logger.error(f"Error calculating EWMA-weighted VaR/CVaR: {str(e)}")
+            return 0.0, 0.0
 
     async def _calculate_benchmark_comparison(
         self,

@@ -108,13 +108,17 @@ FiMatchPlus 포트폴리오 분석 API는 **이동 윈도우(Moving Window)** �
     "min_variance": {
       "expected_return": 0.085,
       "sharpe_ratio": 0.33,
-      "max_drawdown": -0.22
+      "max_drawdown": -0.22,
+      "var_value": -0.15,
+      "cvar_value": -0.19
       // ... 기타 백테스팅 기반 지표들
     },
     "max_sharpe": {
       "expected_return": 0.092,
       "sharpe_ratio": 0.32,
-      "max_drawdown": -0.25
+      "max_drawdown": -0.25,
+      "var_value": -0.18,
+      "cvar_value": -0.23
       // ... 기타 백테스팅 기반 지표들
     }
   },
@@ -322,6 +326,8 @@ FiMatchPlus 포트폴리오 분석 API는 **이동 윈도우(Moving Window)** �
 - `downside_deviation`: 하방편차
 - `upside_beta`: 상승 베타
 - `downside_beta`: 하락 베타
+- `var_value`: VaR 95% (Value at Risk)
+- `cvar_value`: CVaR 95% (Conditional Value at Risk)
 
 **벤치마크 상관관계**:
 - `correlation_with_benchmark`: 벤치마크와의 상관관계
