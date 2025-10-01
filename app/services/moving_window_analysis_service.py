@@ -1,0 +1,668 @@
+"""이동 윈도우 기반 MPT 포트폴리오 최적화 및 백테스팅 분석 서비스
+
+개요:
+- 3년 윈도우 크기로 1개월 간격으로 이동하며 포트폴리오 최적화 수행
+- 최소 변동성 포트폴리오와 최대 샤프 포트폴리오의 비중을 각 시점별로 계산
+- 백테스팅을 통해 전체 기간에 대한 성능 지표를 계산
+- 최종 응답은 최근 시점의 비중과 백테스팅 기반 평균 성능 지표를 포함
+"""
+
+from __future__ import annotations
+
+from typing import Dict, List, Optional, Tuple, Any
+from decimal import Decimal
+from datetime import datetime, timedelta
+import numpy as np
+import pandas as pd
+from sqlalchemy.ext.asyncio import AsyncSession
+from scipy.optimize import minimize
+
+from app.models.schemas import (
+    AnalysisRequest,
+    EnhancedAnalysisResponse,
+    PortfolioWeights,
+    EnhancedAnalysisMetrics,
+    BenchmarkComparison,
+)
+from app.models.stock import StockPrice
+from app.repositories.benchmark_repository import BenchmarkRepository
+from app.repositories.risk_free_rate_repository import RiskFreeRateRepository
+from app.utils.logger import get_logger
+
+
+logger = get_logger(__name__)
+
+
+class MovingWindowAnalysisService:
+    """이동 윈도우 기반 MPT 포트폴리오 분석 서비스"""
+
+    def __init__(self):
+        self.window_years = 3  # 윈도우 크기: 3년
+        self.step_months = 1   # 이동 간격: 1개월
+
+    async def run_analysis(
+        self,
+        request: AnalysisRequest,
+        session: AsyncSession,
+    ) -> EnhancedAnalysisResponse:
+        """이동 윈도우 기반 포트폴리오 분석 실행
+
+        1. 전체 데이터 기간에서 3년 윈도우로 1개월씩 이동하며 최적화 수행
+        2. 각 시점의 최적 비중을 저장
+        3. 백테스팅을 통해 전체 기간의 성능 지표 계산
+        4. 최종 응답은 최근 비중 + 백테스팅 평균 지표
+        """
+        
+        # 전체 분석 기간 설정 (최소 5년 권장)
+        analysis_end = datetime.utcnow()
+        analysis_start = analysis_end - timedelta(days=252 * max(request.lookback_years, 5))
+        
+        # Repository 초기화
+        benchmark_repo = BenchmarkRepository(session)
+        risk_free_repo = RiskFreeRateRepository(session)
+
+        # 전체 기간의 포트폴리오 가격 데이터 로드
+        prices_df = await self._load_daily_prices(session, request, analysis_start, analysis_end)
+        if prices_df.empty:
+            return EnhancedAnalysisResponse(
+                success=False,
+                min_variance=PortfolioWeights(weights={}),
+                max_sharpe=PortfolioWeights(weights={}),
+                metrics={},
+                risk_free_rate_used=0.0,
+                analysis_period={"start": analysis_start, "end": analysis_end},
+                notes="No price data available for requested holdings."
+            )
+
+        # 벤치마크 및 무위험수익률 조회
+        benchmark_code = await self._determine_benchmark(request, benchmark_repo)
+        benchmark_returns = await benchmark_repo.get_benchmark_returns_series(
+            benchmark_code, analysis_start, analysis_end
+        )
+        risk_free_rate = await self._get_risk_free_rate(request, risk_free_repo, analysis_end)
+
+        # 벤치마크와 시계열 동기화
+        if not benchmark_returns.empty:
+            prices_df, benchmark_returns = self._synchronize_time_series(prices_df, benchmark_returns)
+
+        # 이동 윈도우 최적화 수행
+        optimization_results = await self._perform_rolling_optimization(
+            prices_df, benchmark_returns, risk_free_rate
+        )
+
+        # 백테스팅 기반 성능 지표 계산
+        backtest_metrics = await self._calculate_backtest_metrics(
+            optimization_results, benchmark_returns, risk_free_rate
+        )
+
+        # 벤치마크 비교 분석
+        benchmark_comparison = await self._calculate_benchmark_comparison(
+            optimization_results, benchmark_returns, benchmark_code
+        ) if benchmark_code and not benchmark_returns.empty else None
+
+        # 최종 응답 구성
+        latest_weights = optimization_results['latest_weights']
+        
+        return EnhancedAnalysisResponse(
+            success=True,
+            min_variance=PortfolioWeights(weights=latest_weights['min_variance']),
+            max_sharpe=PortfolioWeights(weights=latest_weights['max_sharpe']),
+            metrics=backtest_metrics,
+            benchmark_comparison=benchmark_comparison,
+            risk_free_rate_used=risk_free_rate,
+            analysis_period={"start": analysis_start, "end": analysis_end},
+            notes=f"Analysis based on {benchmark_code} benchmark and 3-year rolling window optimization."
+        )
+
+    async def _load_daily_prices(
+        self,
+        session: AsyncSession,
+        request: AnalysisRequest,
+        start_dt: datetime,
+        end_dt: datetime,
+    ) -> pd.DataFrame:
+        """선택 종목들의 일별 종가를 날짜 x 종목 형태의 표로 만듭니다."""
+        from sqlalchemy import select, and_, asc
+
+        symbols = [h.stock_code for h in request.holdings]
+        if not symbols:
+            return pd.DataFrame()
+
+        stmt = (
+            select(StockPrice)
+            .where(
+                and_(
+                    StockPrice.stock_code.in_(symbols),
+                    StockPrice.interval_unit == "1d",
+                    StockPrice.datetime >= start_dt,
+                    StockPrice.datetime <= end_dt,
+                )
+            )
+            .order_by(asc(StockPrice.datetime))
+        )
+        result = await session.execute(stmt)
+        rows = result.scalars().all()
+        if not rows:
+            return pd.DataFrame()
+
+        df = pd.DataFrame(
+            [
+                {
+                    "datetime": r.datetime,
+                    "stock_code": r.stock_code,
+                    "close": float(r.close_price),
+                }
+                for r in rows
+            ]
+        )
+
+        pivot = df.pivot_table(index="datetime", columns="stock_code", values="close", aggfunc="first")
+        pivot = pivot.sort_index()
+        return pivot
+
+    async def _perform_rolling_optimization(
+        self,
+        prices_df: pd.DataFrame,
+        benchmark_returns: pd.Series,
+        risk_free_rate: float,
+    ) -> Dict[str, Any]:
+        """이동 윈도우 기반 포트폴리오 최적화 수행"""
+        
+        logger.info("Starting rolling window optimization")
+        
+        # 윈도우 크기 (3년 = 약 756 거래일)
+        window_days = 252 * self.window_years
+        
+        # 이동 간격 (1개월 = 약 21 거래일)
+        step_days = 21
+        
+        # 전체 데이터 길이 확인
+        total_days = len(prices_df)
+        if total_days < window_days + step_days:
+            raise ValueError(f"Insufficient data: need at least {window_days + step_days} days, got {total_days}")
+        
+        # 최적화 결과 저장
+        optimization_results = {
+            'dates': [],
+            'min_variance_weights': [],
+            'max_sharpe_weights': [],
+            'portfolio_returns': [],
+            'expected_returns': [],
+            'covariances': []
+        }
+        
+        # 이동 윈도우로 최적화 수행
+        for start_idx in range(0, total_days - window_days, step_days):
+            end_idx = start_idx + window_days
+            
+            # 윈도우 데이터 추출
+            window_prices = prices_df.iloc[start_idx:end_idx]
+            window_date = window_prices.index[-1]  # 윈도우의 마지막 날짜
+            
+            logger.debug(f"Optimizing window: {window_prices.index[0]} to {window_prices.index[-1]}")
+            
+            # 수익률 계산
+            window_returns = window_prices.pct_change().fillna(0.0)
+            
+            # 통계 계산
+            expected_returns = window_returns.mean() * 252.0
+            cov_matrix = window_returns.cov() * 252.0
+            
+            # 포트폴리오 최적화
+            min_var_weights = self._optimize_min_variance(cov_matrix)
+            max_sharpe_weights = self._optimize_max_sharpe(expected_returns, cov_matrix, risk_free_rate)
+            
+            # 다음 기간의 실제 수익률 계산 (백테스팅용)
+            if end_idx < total_days - 1:
+                next_period_prices = prices_df.iloc[end_idx:end_idx + step_days]
+                next_period_returns = next_period_prices.pct_change().fillna(0.0)
+                # 다음 기간의 평균 수익률
+                next_period_avg_returns = next_period_returns.mean()
+                
+                # 최적화된 비중으로 포트폴리오 수익률 계산
+                mv_portfolio_return = float(min_var_weights.dot(next_period_avg_returns))
+                ms_portfolio_return = float(max_sharpe_weights.dot(next_period_avg_returns))
+            else:
+                mv_portfolio_return = 0.0
+                ms_portfolio_return = 0.0
+            
+            # 결과 저장
+            optimization_results['dates'].append(window_date)
+            optimization_results['min_variance_weights'].append(min_var_weights.to_dict())
+            optimization_results['max_sharpe_weights'].append(max_sharpe_weights.to_dict())
+            optimization_results['portfolio_returns'].append({
+                'min_variance': mv_portfolio_return,
+                'max_sharpe': ms_portfolio_return
+            })
+            optimization_results['expected_returns'].append(expected_returns.to_dict())
+            optimization_results['covariances'].append(cov_matrix.to_dict())
+        
+        # 최신 비중 저장 (마지막 윈도우의 비중)
+        optimization_results['latest_weights'] = {
+            'min_variance': optimization_results['min_variance_weights'][-1],
+            'max_sharpe': optimization_results['max_sharpe_weights'][-1]
+        }
+        
+        logger.info(f"Completed rolling optimization: {len(optimization_results['dates'])} windows processed")
+        return optimization_results
+
+    def _optimize_min_variance(self, cov_matrix: pd.DataFrame) -> pd.Series:
+        """최소 변동성 포트폴리오 최적화"""
+        n_assets = len(cov_matrix)
+        
+        # 목적 함수: 포트폴리오 분산 최소화
+        def objective(weights):
+            return np.dot(weights, np.dot(cov_matrix.values, weights))
+        
+        # 제약 조건: 비중의 합 = 1, 비중 >= 0
+        constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
+        bounds = tuple((0, 1) for _ in range(n_assets))
+        
+        # 초기값 (균등 비중)
+        x0 = np.ones(n_assets) / n_assets
+        
+        try:
+            result = minimize(objective, x0, method='SLSQP', bounds=bounds, constraints=constraints)
+            if result.success:
+                weights = pd.Series(result.x, index=cov_matrix.columns)
+                return weights / weights.sum()  # 정규화
+            else:
+                logger.warning("Min variance optimization failed, using inverse variance weights")
+                return self._fallback_min_variance_weights(cov_matrix)
+        except Exception as e:
+            logger.error(f"Min variance optimization error: {e}")
+            return self._fallback_min_variance_weights(cov_matrix)
+
+    def _optimize_max_sharpe(self, expected_returns: pd.Series, cov_matrix: pd.DataFrame, risk_free_rate: float) -> pd.Series:
+        """최대 샤프 비율 포트폴리오 최적화"""
+        n_assets = len(expected_returns)
+        
+        # 목적 함수: 샤프 비율 최대화 (음의 샤프 비율 최소화)
+        def objective(weights):
+            portfolio_return = np.dot(weights, expected_returns.values)
+            portfolio_variance = np.dot(weights, np.dot(cov_matrix.values, weights))
+            portfolio_std = np.sqrt(max(portfolio_variance, 1e-8))
+            sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_std
+            return -sharpe_ratio  # 음수를 취해서 최소화
+        
+        # 제약 조건: 비중의 합 = 1, 비중 >= 0
+        constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
+        bounds = tuple((0, 1) for _ in range(n_assets))
+        
+        # 초기값 (균등 비중)
+        x0 = np.ones(n_assets) / n_assets
+        
+        try:
+            result = minimize(objective, x0, method='SLSQP', bounds=bounds, constraints=constraints)
+            if result.success:
+                weights = pd.Series(result.x, index=expected_returns.index)
+                return weights / weights.sum()  # 정규화
+            else:
+                logger.warning("Max sharpe optimization failed, using expected return weighted weights")
+                return self._fallback_max_sharpe_weights(expected_returns, cov_matrix, risk_free_rate)
+        except Exception as e:
+            logger.error(f"Max sharpe optimization error: {e}")
+            return self._fallback_max_sharpe_weights(expected_returns, cov_matrix, risk_free_rate)
+
+    def _fallback_min_variance_weights(self, cov_matrix: pd.DataFrame) -> pd.Series:
+        """최소 변동성 최적화 실패 시 대체 방법"""
+        diag_var = np.diag(cov_matrix.values)
+        inv_var = np.where(diag_var > 0, 1.0 / diag_var, 0.0)
+        w = inv_var / inv_var.sum() if inv_var.sum() > 0 else np.ones_like(inv_var) / len(inv_var)
+        return pd.Series(w, index=cov_matrix.columns)
+
+    def _fallback_max_sharpe_weights(self, expected_returns: pd.Series, cov_matrix: pd.DataFrame, risk_free_rate: float) -> pd.Series:
+        """최대 샤프 최적화 실패 시 대체 방법"""
+        diag_var = np.diag(cov_matrix.values)
+        excess = (expected_returns.values - risk_free_rate)
+        score = np.where(diag_var > 0, excess / diag_var, 0.0)
+        score = np.maximum(score, 0.0)
+        if score.sum() == 0:
+            score = np.ones_like(score)
+        w = score / score.sum()
+        return pd.Series(w, index=expected_returns.index)
+
+    async def _calculate_backtest_metrics(
+        self,
+        optimization_results: Dict[str, Any],
+        benchmark_returns: pd.Series,
+        risk_free_rate: float,
+    ) -> Dict[str, EnhancedAnalysisMetrics]:
+        """백테스팅 기반 성능 지표 계산"""
+        
+        logger.info("Calculating backtest metrics")
+        
+        # 포트폴리오 수익률 시계열 추출
+        mv_returns = [r['min_variance'] for r in optimization_results['portfolio_returns']]
+        ms_returns = [r['max_sharpe'] for r in optimization_results['portfolio_returns']]
+        
+        mv_returns_series = pd.Series(mv_returns, name='min_variance')
+        ms_returns_series = pd.Series(ms_returns, name='max_sharpe')
+        
+        # 벤치마크 수익률과 동기화
+        if not benchmark_returns.empty:
+            # 벤치마크 수익률을 백테스팅 기간에 맞게 조정
+            benchmark_period_returns = self._align_benchmark_returns(
+                benchmark_returns, optimization_results['dates']
+            )
+        else:
+            benchmark_period_returns = pd.Series(dtype=float)
+        
+        # 각 포트폴리오의 성능 지표 계산
+        mv_metrics = self._calculate_portfolio_metrics(
+            mv_returns_series, benchmark_period_returns, risk_free_rate, "Min Variance"
+        )
+        ms_metrics = self._calculate_portfolio_metrics(
+            ms_returns_series, benchmark_period_returns, risk_free_rate, "Max Sharpe"
+        )
+        
+        return {
+            "min_variance": mv_metrics,
+            "max_sharpe": ms_metrics,
+        }
+
+    def _align_benchmark_returns(self, benchmark_returns: pd.Series, optimization_dates: List[datetime]) -> pd.Series:
+        """벤치마크 수익률을 백테스팅 기간에 맞게 조정"""
+        aligned_returns = []
+        
+        for date in optimization_dates:
+            # 해당 날짜 이후의 벤치마크 수익률 찾기
+            future_returns = benchmark_returns[benchmark_returns.index > date]
+            if not future_returns.empty:
+                # 다음 기간의 평균 수익률 사용
+                next_return = future_returns.head(21).mean()  # 약 1개월
+                aligned_returns.append(next_return)
+            else:
+                aligned_returns.append(0.0)
+        
+        return pd.Series(aligned_returns)
+
+    def _calculate_portfolio_metrics(
+        self,
+        portfolio_returns: pd.Series,
+        benchmark_returns: pd.Series,
+        risk_free_rate: float,
+        portfolio_name: str
+    ) -> EnhancedAnalysisMetrics:
+        """포트폴리오 성능 지표 계산"""
+        
+        # 기본 통계
+        expected_return = portfolio_returns.mean() * 252.0  # 연환산
+        variance = portfolio_returns.var() * 252.0
+        std_deviation = np.sqrt(max(variance, 0.0))
+        
+        # 벤치마크 관련 지표
+        if not benchmark_returns.empty and len(benchmark_returns) > 0:
+            beta, alpha, correlation = self._calculate_beta_alpha(
+                portfolio_returns, benchmark_returns, risk_free_rate
+            )
+            tracking_error = self._calculate_tracking_error(portfolio_returns, benchmark_returns)
+            upside_beta, downside_beta = self._calculate_upside_downside_beta(
+                portfolio_returns, benchmark_returns, benchmark_returns.mean()
+            )
+            benchmark_annual_return = benchmark_returns.mean() * 252.0
+        else:
+            beta = 1.0
+            alpha = 0.0
+            correlation = 0.0
+            tracking_error = 0.0
+            upside_beta = 1.0
+            downside_beta = 1.0
+            benchmark_annual_return = 0.0
+        
+        # 위험조정 수익률 지표
+        sharpe_ratio = (expected_return - risk_free_rate) / std_deviation if std_deviation > 0 else 0.0
+        treynor_ratio = (expected_return - risk_free_rate) / beta if beta != 0 else 0.0
+        
+        # 하방편차 및 소르티노 비율
+        downside_deviation = self._calculate_downside_deviation(portfolio_returns)
+        sortino_ratio = (expected_return - risk_free_rate) / downside_deviation if downside_deviation > 0 else 0.0
+        
+        # 최대 낙폭 및 칼마 비율
+        max_drawdown = self._calculate_max_drawdown(portfolio_returns)
+        calmar_ratio = expected_return / abs(max_drawdown) if max_drawdown != 0 else 0.0
+        
+        # 정보비율
+        information_ratio = (expected_return - benchmark_annual_return) / tracking_error if tracking_error > 0 else 0.0
+        
+        # 젠센 알파 (CAPM 기준)
+        capm_expected_return = risk_free_rate + beta * (benchmark_annual_return - risk_free_rate)
+        jensen_alpha = expected_return - capm_expected_return
+
+        return EnhancedAnalysisMetrics(
+            expected_return=expected_return,
+            std_deviation=std_deviation,
+            beta=beta,
+            alpha=alpha,
+            jensen_alpha=jensen_alpha,
+            tracking_error=tracking_error,
+            sharpe_ratio=sharpe_ratio,
+            treynor_ratio=treynor_ratio,
+            sortino_ratio=sortino_ratio,
+            calmar_ratio=calmar_ratio,
+            information_ratio=information_ratio,
+            max_drawdown=max_drawdown,
+            downside_deviation=downside_deviation,
+            upside_beta=upside_beta,
+            downside_beta=downside_beta,
+            correlation_with_benchmark=correlation,
+        )
+
+    def _calculate_beta_alpha(
+        self,
+        portfolio_returns: pd.Series,
+        benchmark_returns: pd.Series,
+        risk_free_rate: float
+    ) -> Tuple[float, float, float]:
+        """베타, 알파, 상관관계 계산"""
+        try:
+            # 초과수익률 계산
+            portfolio_excess = portfolio_returns - risk_free_rate / 252.0
+            benchmark_excess = benchmark_returns - risk_free_rate / 252.0
+            
+            # 베타 계산 (공분산 / 벤치마크 분산)
+            covariance = np.cov(portfolio_excess, benchmark_excess)[0, 1]
+            benchmark_variance = np.var(benchmark_excess)
+            
+            beta = covariance / benchmark_variance if benchmark_variance > 0 else 1.0
+            
+            # 알파 계산 (회귀 상수항)
+            alpha = portfolio_excess.mean() - beta * benchmark_excess.mean()
+            
+            # 상관관계 계산
+            correlation = np.corrcoef(portfolio_returns, benchmark_returns)[0, 1]
+            if np.isnan(correlation):
+                correlation = 0.0
+            
+            return float(beta), float(alpha) * 252.0, float(correlation)  # 알파는 연환산
+            
+        except Exception as e:
+            logger.error(f"Error calculating beta/alpha: {str(e)}")
+            return 1.0, 0.0, 0.0
+
+    def _calculate_tracking_error(
+        self,
+        portfolio_returns: pd.Series,
+        benchmark_returns: pd.Series
+    ) -> float:
+        """트래킹 에러 계산"""
+        try:
+            excess_returns = portfolio_returns - benchmark_returns
+            tracking_error = excess_returns.std() * np.sqrt(252)  # 연환산
+            return float(tracking_error)
+        except Exception as e:
+            logger.error(f"Error calculating tracking error: {str(e)}")
+            return 0.0
+
+    def _calculate_upside_downside_beta(
+        self,
+        portfolio_returns: pd.Series,
+        benchmark_returns: pd.Series,
+        benchmark_mean: float
+    ) -> Tuple[float, float]:
+        """상승/하락 베타 계산"""
+        try:
+            # 벤치마크가 평균보다 높은 날과 낮은 날 분리
+            upside_mask = benchmark_returns > benchmark_mean
+            downside_mask = benchmark_returns < benchmark_mean
+            
+            upside_beta = 1.0
+            downside_beta = 1.0
+            
+            if upside_mask.sum() > 1:
+                port_up = portfolio_returns[upside_mask]
+                bench_up = benchmark_returns[upside_mask]
+                upside_beta = np.cov(port_up, bench_up)[0, 1] / np.var(bench_up) if np.var(bench_up) > 0 else 1.0
+            
+            if downside_mask.sum() > 1:
+                port_down = portfolio_returns[downside_mask]
+                bench_down = benchmark_returns[downside_mask]
+                downside_beta = np.cov(port_down, bench_down)[0, 1] / np.var(bench_down) if np.var(bench_down) > 0 else 1.0
+            
+            return float(upside_beta), float(downside_beta)
+            
+        except Exception as e:
+            logger.error(f"Error calculating upside/downside beta: {str(e)}")
+            return 1.0, 1.0
+
+    def _calculate_downside_deviation(
+        self,
+        returns: pd.Series,
+        target_return: float = 0.0
+    ) -> float:
+        """하방편차 계산"""
+        try:
+            downside_returns = returns[returns < target_return / 252.0]
+            if len(downside_returns) == 0:
+                return 0.0
+            downside_deviation = downside_returns.std() * np.sqrt(252)
+            return float(downside_deviation)
+        except Exception as e:
+            logger.error(f"Error calculating downside deviation: {str(e)}")
+            return 0.0
+
+    def _calculate_max_drawdown(self, returns: pd.Series) -> float:
+        """최대 낙폭 계산"""
+        try:
+            cumulative = (1 + returns).cumprod()
+            running_max = cumulative.expanding().max()
+            drawdown = (cumulative - running_max) / running_max
+            return float(drawdown.min())
+        except Exception as e:
+            logger.error(f"Error calculating max drawdown: {str(e)}")
+            return 0.0
+
+    async def _calculate_benchmark_comparison(
+        self,
+        optimization_results: Dict[str, Any],
+        benchmark_returns: pd.Series,
+        benchmark_code: str
+    ) -> Optional[BenchmarkComparison]:
+        """벤치마크 비교 분석"""
+        try:
+            if benchmark_returns.empty:
+                return None
+            
+            # 백테스팅 기간의 포트폴리오 수익률
+            mv_returns = [r['min_variance'] for r in optimization_results['portfolio_returns']]
+            ms_returns = [r['max_sharpe'] for r in optimization_results['portfolio_returns']]
+            
+            # 최대 샤프 포트폴리오를 기준으로 비교 분석
+            portfolio_returns = pd.Series(ms_returns)
+            
+            # 벤치마크 수익률 조정
+            benchmark_period_returns = self._align_benchmark_returns(benchmark_returns, optimization_results['dates'])
+            
+            # 벤치마크 통계
+            benchmark_annual_return = benchmark_period_returns.mean() * 252.0
+            benchmark_volatility = benchmark_period_returns.std() * np.sqrt(252)
+            
+            # 포트폴리오 통계
+            portfolio_annual_return = portfolio_returns.mean() * 252.0
+            portfolio_volatility = portfolio_returns.std() * np.sqrt(252)
+            
+            # 초과 성과
+            excess_return = portfolio_annual_return - benchmark_annual_return
+            relative_volatility = portfolio_volatility / benchmark_volatility if benchmark_volatility > 0 else 1.0
+            
+            # 성과 기여도 분석 (단순화된 버전)
+            security_selection = excess_return * 0.7  # 대략적인 추정
+            timing_effect = excess_return * 0.3
+            
+            return BenchmarkComparison(
+                benchmark_code=benchmark_code,
+                benchmark_return=float(benchmark_annual_return),
+                benchmark_volatility=float(benchmark_volatility),
+                excess_return=float(excess_return),
+                relative_volatility=float(relative_volatility),
+                security_selection=float(security_selection),
+                timing_effect=float(timing_effect)
+            )
+            
+        except Exception as e:
+            logger.error(f"Error calculating benchmark comparison: {str(e)}")
+            return None
+
+    def _synchronize_time_series(
+        self, 
+        prices_df: pd.DataFrame, 
+        benchmark_returns: pd.Series
+    ) -> Tuple[pd.DataFrame, pd.Series]:
+        """포트폴리오와 벤치마크 시계열 동기화"""
+        if benchmark_returns.empty:
+            logger.warning("Empty benchmark returns, returning original portfolio prices")
+            return prices_df, pd.Series(dtype=float)
+        
+        # 공통 날짜 찾기
+        common_dates = prices_df.index.intersection(benchmark_returns.index)
+        
+        if len(common_dates) == 0:
+            logger.warning("No common dates between portfolio and benchmark")
+            return prices_df, pd.Series(dtype=float)
+        
+        # 공통 날짜로 필터링
+        synced_prices = prices_df.loc[common_dates]
+        synced_benchmark = benchmark_returns.loc[common_dates]
+        
+        logger.info(f"Synchronized {len(common_dates)} trading days between portfolio and benchmark")
+        return synced_prices, synced_benchmark
+
+    async def _determine_benchmark(
+        self, 
+        request: AnalysisRequest, 
+        benchmark_repo: BenchmarkRepository
+    ) -> str:
+        """적절한 벤치마크 결정"""
+        if request.benchmark:
+            # 사용자가 지정한 벤치마크가 있는지 확인
+            available_benchmarks = await benchmark_repo.get_available_benchmarks()
+            if request.benchmark in available_benchmarks:
+                return request.benchmark
+            else:
+                logger.warning(f"Requested benchmark {request.benchmark} not available, falling back to KOSPI")
+        
+        # 기본적으로 KOSPI 사용
+        return "KOSPI"
+
+    async def _get_risk_free_rate(
+        self,
+        request: AnalysisRequest,
+        risk_free_repo: RiskFreeRateRepository,
+        target_date: datetime
+    ) -> float:
+        """무위험수익률 조회"""
+        if request.risk_free_rate is not None:
+            return request.risk_free_rate
+        
+        # 자동으로 CD91 금리 조회
+        rate = await risk_free_repo.get_risk_free_rate("CD91", target_date)
+        if rate is not None:
+            return rate
+        
+        # CD91이 없으면 BOK 기준금리 시도
+        rate = await risk_free_repo.get_risk_free_rate("BOK_BASE", target_date)
+        if rate is not None:
+            return rate
+        
+        logger.warning("No risk-free rate data available, using 0.0")
+        return 0.0

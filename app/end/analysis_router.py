@@ -1,16 +1,22 @@
 """포트폴리오 분석 API 라우터 (도메인 분리)"""
 
+import time
+import uuid
+import httpx
 from typing import Optional, List, Dict
 from datetime import datetime
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, BackgroundTasks
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.database import get_async_session
 from app.models.schemas import (
     AnalysisRequest,
     EnhancedAnalysisResponse,
+    AnalysisJobResponse,
+    AnalysisCallbackResponse,
     BenchmarkPriceResponse,
-    RiskFreeRateResponse
+    RiskFreeRateResponse,
+    ErrorResponse
 )
 from app.services.analysis_service import AnalysisService
 from app.services.data_collection_service import DataCollectionService
@@ -34,23 +40,95 @@ async def get_data_collection_service() -> DataCollectionService:
 
 
 @router.post(
+    "/start",
+    response_model=AnalysisJobResponse,
+    summary="비동기 포트폴리오 분석 시작",
+    description="포트폴리오 분석을 백그라운드에서 실행하고 완료 시 콜백 URL로 결과를 전송합니다."
+)
+async def start_analysis_async(
+    request: AnalysisRequest,
+    background_tasks: BackgroundTasks,
+    session: AsyncSession = Depends(get_async_session),
+    analysis_service: AnalysisService = Depends(get_analysis_service),
+) -> AnalysisJobResponse:
+    """비동기 포트폴리오 분석 시작"""
+    try:
+        # 입력 검증
+        if not request.holdings:
+            raise HTTPException(
+                status_code=400,
+                detail="At least one holding must be specified"
+            )
+        
+        # 콜백 URL 필수 확인
+        if not request.callback_url:
+            raise HTTPException(
+                status_code=400,
+                detail="callback_url is required for async analysis"
+            )
+        
+        # 작업 ID 생성
+        job_id = str(uuid.uuid4())
+        
+        logger.info(
+            "Async analysis request received",
+            job_id=job_id,
+            holdings_count=len(request.holdings),
+            lookback_years=request.lookback_years,
+            benchmark=request.benchmark,
+            callback_url=request.callback_url
+        )
+        
+        # 백그라운드 작업으로 분석 실행
+        background_tasks.add_task(
+            run_analysis_and_callback,
+            job_id=job_id,
+            request=request,
+            session=session,
+            analysis_service=analysis_service
+        )
+        
+        return AnalysisJobResponse(
+            job_id=job_id,
+            status="started",
+            message="포트폴리오 분석이 백그라운드에서 실행 중입니다."
+        )
+        
+    except HTTPException:
+        raise
+        
+    except Exception as e:
+        logger.error(
+            "Failed to start async analysis",
+            error=str(e),
+            holdings_count=len(request.holdings) if request.holdings else 0,
+            callback_url=request.callback_url
+        )
+        
+        raise HTTPException(
+            status_code=500,
+            detail="분석 시작 중 오류가 발생했습니다."
+        )
+
+
+@router.post(
     "/run",
     response_model=EnhancedAnalysisResponse,
-    summary="포트폴리오 분석 실행",
-    description="보유 종목 수량 기반으로 MPT/CAPM 분석을 수행하고 결과를 반환합니다. 벤치마크 비교 분석도 포함됩니다."
+    summary="동기 포트폴리오 분석 실행",
+    description="포트폴리오 분석을 즉시 실행하고 결과를 반환합니다. 이동 윈도우 기반 MPT 최적화 및 백테스팅 분석을 수행합니다."
 )
-async def run_analysis(
+async def run_analysis_sync(
     request: AnalysisRequest,
     session: AsyncSession = Depends(get_async_session),
     analysis_service: AnalysisService = Depends(get_analysis_service),
 ) -> EnhancedAnalysisResponse:
-    """포트폴리오 분석 실행
+    """동기 포트폴리오 분석 실행
     
     기본 분석과 고급 분석을 모두 포함하여 포트폴리오 성과를 종합적으로 분석합니다.
     
     제공 기능:
-    - 포트폴리오 최적화 (최소 변동성, 최대 샤프)
-    - 기본 성과 지표 (기대수익률, 변동성, 샤프 비율 등)
+    - 이동 윈도우 기반 포트폴리오 최적화 (최소 변동성, 최대 샤프)
+    - 백테스팅 기반 검증된 성과 지표 (기대수익률, 변동성, 샤프 비율 등)
     - 고급 리스크 지표 (베타, 알파, 트래킹 에러, 소르티노 비율 등)
     - 벤치마크 비교 분석 (선택적)
     """
@@ -65,6 +143,161 @@ async def run_analysis(
     except Exception as e:
         logger.error("Failed to run analysis", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
+
+
+async def run_analysis_and_callback(
+    job_id: str,
+    request: AnalysisRequest,
+    session: AsyncSession,
+    analysis_service: AnalysisService
+):
+    """백그라운드에서 포트폴리오 분석 실행 및 콜백 전송"""
+    start_time = time.time()
+    
+    # 독립적인 세션 생성하여 트랜잭션 충돌 방지
+    from app.models.database import AsyncSessionLocal
+    
+    async with AsyncSessionLocal() as analysis_session:
+        try:
+            logger.info(f"Starting background analysis", job_id=job_id)
+            
+            # 분석 실행 (callback_url 제거한 요청으로)
+            analysis_request = AnalysisRequest(
+                holdings=request.holdings,
+                lookback_years=request.lookback_years,
+                benchmark=request.benchmark,
+                risk_free_rate=request.risk_free_rate
+            )
+            
+            result = await analysis_service.run_analysis(
+                request=analysis_request,
+                session=analysis_session  # 새로운 독립 세션 사용
+            )
+            
+            execution_time = time.time() - start_time
+            
+            # 성공 콜백 전송
+            callback_response = AnalysisCallbackResponse(
+                job_id=job_id,
+                success=True,
+                min_variance=result.min_variance,
+                max_sharpe=result.max_sharpe,
+                metrics=result.metrics,
+                benchmark_comparison=result.benchmark_comparison,
+                risk_free_rate_used=result.risk_free_rate_used,
+                analysis_period=result.analysis_period,
+                notes=result.notes,
+                error=None,
+                execution_time=execution_time,
+                analysis_id=request.analysis_id
+            )
+            
+            await send_analysis_callback(request.callback_url, callback_response)
+            
+            logger.info(
+                "Background analysis completed successfully",
+                job_id=job_id,
+                execution_time=f"{execution_time:.3f}s"
+            )
+            
+        except Exception as e:
+            execution_time = time.time() - start_time
+            
+            logger.error(
+                "Background analysis failed",
+                job_id=job_id,
+                error=str(e),
+                execution_time=f"{execution_time:.3f}s",
+                exc_info=True
+            )
+            
+            # 실패 콜백 전송
+            callback_response = AnalysisCallbackResponse(
+                job_id=job_id,
+                success=False,
+                min_variance=None,
+                max_sharpe=None,
+                metrics=None,
+                benchmark_comparison=None,
+                risk_free_rate_used=None,
+                analysis_period=None,
+                notes=None,
+                error=ErrorResponse(
+                    error="Analysis failed",
+                    detail=str(e),
+                    timestamp=datetime.utcnow()
+                ),
+                execution_time=execution_time,
+                analysis_id=request.analysis_id
+            )
+            
+            await send_analysis_callback(request.callback_url, callback_response)
+
+
+async def send_analysis_callback(callback_url: str, response: AnalysisCallbackResponse):
+    """콜백 URL로 분석 결과 전송"""
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            # 응답 상태에 따라 적절한 헤더와 상태 정보 추가
+            headers = {
+                "Content-Type": "application/json",
+                "X-Analysis-Status": "success" if response.success else "error",
+                "X-Analysis-Job-ID": response.job_id
+            }
+            
+            # 에러 응답인 경우 추가 헤더 설정
+            if not response.success:
+                headers["X-Analysis-Error-Type"] = "ANALYSIS_ERROR"
+                
+            callback_result = await client.post(
+                callback_url,
+                json=response.model_dump(mode='json'),
+                headers=headers
+            )
+            
+            # 성공/실패에 따른 로깅
+            expected_status_codes = {
+                True: 200,   # 성공: 200 OK
+                False: 400   # 에러: 400 Bad Request
+            }
+            expected_status = expected_status_codes[response.success]
+            
+            if callback_result.status_code == expected_status:
+                if response.success:
+                    logger.info(
+                        "Analysis callback sent successfully",
+                        job_id=response.job_id,
+                        callback_url=callback_url,
+                        status_code=callback_result.status_code
+                    )
+                else:
+                    logger.warning(
+                        "Analysis callback sent with error response",
+                        job_id=response.job_id,
+                        callback_url=callback_url,
+                        status_code=callback_result.status_code
+                    )
+            else:
+                status_msg = "successfully" if response.success else "with error response"
+                logger.warning(
+                    f"Analysis callback {status_msg} but response status code differs",
+                    job_id=response.job_id,
+                    callback_url=callback_url,
+                    expected_status=expected_status,
+                    actual_status=callback_result.status_code,
+                    success=response.success
+                )
+                
+    except Exception as e:
+        logger.error(
+            "Failed to send analysis callback",
+            job_id=response.job_id,
+            callback_url=callback_url,
+            success=response.success,
+            error=str(e)
+        )
+        # 콜백 전송 실패 시 예외를 다시 발생시켜 상위에서 실패로 처리되도록 함
+        raise
 
 
 @router.get(
