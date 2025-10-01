@@ -376,6 +376,8 @@ class AnalysisRequest(BaseModel):
     lookback_years: int = Field(3, ge=1, le=10, description="과거 데이터 조회 연수 (3~5 추천)")
     benchmark: Optional[str] = Field(None, description="벤치마크 지수 코드 (예: KOSPI, KOSDAQ). 미제공 시 내부 추정")
     risk_free_rate: Optional[float] = Field(None, description="연간 무위험 수익률 (소수). 미제공 시 0 가정")
+    callback_url: Optional[str] = Field(None, description="결과를 받을 콜백 URL (비동기 처리 시 필수)")
+    analysis_id: Optional[int] = Field(None, description="클라이언트에서 제공하는 분석 ID (콜백 시 그대로 반환)")
 
 
 class PortfolioWeights(BaseModel):
@@ -471,6 +473,33 @@ class BenchmarkComparison(BaseModel):
     timing_effect: float = Field(..., description="타이밍 효과")
 
 
+class AnalysisJobResponse(BaseModel):
+    """비동기 포트폴리오 분석 작업 시작 응답"""
+    job_id: str = Field(..., description="작업 ID")
+    status: str = Field(..., description="작업 상태 (started)")
+    message: str = Field(..., description="상태 메시지")
+
+
+class AnalysisCallbackResponse(BaseModel):
+    """포트폴리오 분석 완료 콜백 응답 스키마"""
+    job_id: str = Field(..., description="작업 ID")
+    # 성공 시: EnhancedAnalysisResponse와 동일한 필드들
+    success: Optional[bool] = Field(None, description="성공 여부")
+    min_variance: Optional[PortfolioWeights] = Field(None, description="최소분산 포트폴리오 비중")
+    max_sharpe: Optional[PortfolioWeights] = Field(None, description="최대 샤프 포트폴리오 비중")
+    metrics: Optional[Dict[str, EnhancedAnalysisMetrics]] = Field(None, description="향상된 성과 지표")
+    benchmark_comparison: Optional[BenchmarkComparison] = Field(None, description="벤치마크 비교 결과")
+    risk_free_rate_used: Optional[float] = Field(None, description="사용된 무위험수익률")
+    analysis_period: Optional[Dict[str, datetime]] = Field(None, description="분석 기간")
+    notes: Optional[str] = Field(None, description="참고 사항")
+    # 실패 시: 에러 정보 포함
+    error: Optional[ErrorResponse] = Field(None, description="오류 상세 정보")
+    # 공통 필드
+    execution_time: float = Field(..., description="실행 시간 (초)")
+    analysis_id: Optional[int] = Field(None, description="클라이언트에서 제공한 분석 ID")
+    timestamp: datetime = Field(default_factory=get_kst_now, description="완료 시각")
+
+
 class EnhancedAnalysisResponse(BaseModel):
     """향상된 포트폴리오 분석 응답"""
     success: bool = Field(True, description="성공 여부")
@@ -481,3 +510,6 @@ class EnhancedAnalysisResponse(BaseModel):
     risk_free_rate_used: float = Field(..., description="사용된 무위험수익률")
     analysis_period: Dict[str, datetime] = Field(..., description="분석 기간")
     notes: Optional[str] = Field(None, description="참고 사항")
+    execution_time: Optional[float] = Field(None, description="실행 시간 (초)")
+    analysis_id: Optional[int] = Field(None, description="클라이언트에서 제공한 분석 ID")
+    timestamp: Optional[datetime] = Field(default_factory=get_kst_now, description="응답 생성 시각")
