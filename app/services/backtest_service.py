@@ -100,7 +100,7 @@ class BacktestService:
                 )
             
             # 3. 백테스트 실행
-            portfolio_data, result_summary, execution_logs, final_status, benchmark_info = await self._execute_backtest(
+            portfolio_data, result_summary, execution_logs, final_status, benchmark_info, actual_start, actual_end = await self._execute_backtest(
                 request, stock_prices, session
             )
             
@@ -117,7 +117,7 @@ class BacktestService:
             
             # 7. 포트폴리오 스냅샷 생성 (메모리만)
             portfolio_snapshot = self._create_portfolio_snapshot_response(
-                request, portfolio_data, portfolio_id
+                request, portfolio_data, portfolio_id, actual_start, actual_end
             )
             
             execution_time = time.time() - start_time
@@ -146,21 +146,49 @@ class BacktestService:
             logger.error(f"Backtest failed", error=str(e))
             raise
     
+    def _adjust_to_trading_days(self, stock_prices: pd.DataFrame, start_date: datetime, end_date: datetime) -> Tuple[datetime, datetime]:
+        """실제 거래일 기준으로 시작/종료 날짜 조정"""
+        if stock_prices.empty:
+            return start_date, end_date
+            
+        # 실제 거래일 추출
+        trading_dates = stock_prices['datetime'].unique()
+        trading_dates = pd.to_datetime(trading_dates)
+        
+        # 시작일 이후의 첫 번째 거래일
+        actual_start = trading_dates[trading_dates >= start_date]
+        if len(actual_start) > 0:
+            adjusted_start = actual_start.min()
+        else:
+            adjusted_start = start_date
+            
+        # 종료일 이전의 마지막 거래일
+        actual_end = trading_dates[trading_dates <= end_date]
+        if len(actual_end) > 0:
+            adjusted_end = actual_end.max()
+        else:
+            adjusted_end = end_date
+            
+        return adjusted_start, adjusted_end
+
     async def _get_stock_prices_optimized(
         self, 
         request: BacktestRequest, 
         session: AsyncSession
     ) -> pd.DataFrame:
-        """최적화된 주가 데이터 조회"""
+        """최적화된 주가 데이터 조회 (휴장일 고려)"""
         # 종목 코드 추출
         stock_codes = [holding.code for holding in request.holdings]
         
-        # 데이터베이스에서 조회
+        # 먼저 넓은 범위로 데이터 조회 (휴장일 고려)
+        extended_start = request.start - timedelta(days=10)  # 시작일 10일 전부터
+        extended_end = request.end + timedelta(days=10)      # 종료일 10일 후까지
+        
         query = select(StockPrice).where(
             and_(
                 StockPrice.stock_code.in_(stock_codes),
-                StockPrice.datetime >= request.start,
-                StockPrice.datetime <= request.end,
+                StockPrice.datetime >= extended_start,
+                StockPrice.datetime <= extended_end,
                 StockPrice.interval_unit == "1d"
             )
         ).order_by(StockPrice.datetime)
@@ -185,6 +213,16 @@ class BacktestService:
             })
         
         df = pd.DataFrame(data)
+        
+        # 실제 거래일 기준으로 시작/종료 날짜 조정
+        if not df.empty:
+            adjusted_start, adjusted_end = self._adjust_to_trading_days(df, request.start, request.end)
+            
+            # 조정된 날짜 범위로 필터링
+            df = df[(df['datetime'] >= adjusted_start) & (df['datetime'] <= adjusted_end)]
+            
+            logger.info(f"Adjusted trading period: {adjusted_start.strftime('%Y-%m-%d')} ~ {adjusted_end.strftime('%Y-%m-%d')} "
+                       f"(original: {request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')})")
         
         # 각 종목별로 데이터 존재 여부 확인
         if not df.empty:
@@ -255,7 +293,7 @@ class BacktestService:
         request: BacktestRequest, 
         stock_prices: pd.DataFrame,
         session: AsyncSession
-    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str, Optional[Dict[str, Any]]]:
+    ) -> Tuple[List[Dict[str, Any]], List[Dict[str, Any]], List[Dict[str, Any]], str, Optional[Dict[str, Any]], datetime, datetime]:
         """백테스트 실행 (수량 기반 벡터화 연산 + 손절/익절 로직)"""
         
         # 포트폴리오 보유 수량 딕셔너리 생성
@@ -267,12 +305,27 @@ class BacktestService:
             if holding.avg_price:
                 avg_prices[holding.code] = float(holding.avg_price)
             else:
-                # 평균 매수가가 없으면 첫날 가격으로 설정
-                first_price = stock_prices[
-                    (stock_prices['stock_code'] == holding.code) & 
-                    (stock_prices['datetime'] == stock_prices['datetime'].min())
-                ]['close_price'].iloc[0]
-                avg_prices[holding.code] = float(first_price)
+                # 평균 매수가가 없으면 첫 번째 거래일 가격으로 설정
+                stock_data = stock_prices[stock_prices['stock_code'] == holding.code]
+                if not stock_data.empty:
+                    # 해당 종목의 첫 번째 거래일 가격 (datetime 기준 정렬 후 첫 번째)
+                    first_price_data = stock_data.sort_values('datetime').iloc[0]
+                    avg_prices[holding.code] = float(first_price_data['close_price'])
+                    logger.info(f"Using first trading day price for {holding.code}: {avg_prices[holding.code]:.2f} "
+                              f"on {first_price_data['datetime'].strftime('%Y-%m-%d')}")
+                else:
+                    # 해당 종목의 데이터가 없는 경우 에러 발생
+                    logger.error(f"No stock price data found for {holding.code}")
+                    raise MissingStockPriceDataException(
+                        missing_stocks=[{
+                            'stock_code': holding.code,
+                            'start_date': request.start.strftime('%Y-%m-%d'),
+                            'end_date': request.end.strftime('%Y-%m-%d'),
+                            'available_date_range': None
+                        }],
+                        requested_period=f"{request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')}",
+                        total_stocks=1
+                    )
         
         # 피벗 테이블로 변환 (날짜 x 종목)
         price_pivot = stock_prices.pivot_table(
@@ -290,8 +343,37 @@ class BacktestService:
             aggfunc='first'
         )
         
+        # 피벗 테이블이 비어있는지 확인
+        if price_pivot.empty or returns_pivot.empty:
+            logger.error("Empty pivot tables created from stock prices data")
+            raise MissingStockPriceDataException(
+                missing_stocks=[{
+                    'stock_code': 'ALL',
+                    'start_date': request.start.strftime('%Y-%m-%d'),
+                    'end_date': request.end.strftime('%Y-%m-%d'),
+                    'available_date_range': None
+                }],
+                requested_period=f"{request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')}",
+                total_stocks=len(request.holdings)
+            )
+        
         # 공통 종목 필터링
         common_stocks = price_pivot.columns.intersection(quantities.keys())
+        
+        # 공통 종목이 없는 경우 에러
+        if len(common_stocks) == 0:
+            logger.error("No common stocks found between portfolio and price data")
+            raise MissingStockPriceDataException(
+                missing_stocks=[{
+                    'stock_code': 'ALL',
+                    'start_date': request.start.strftime('%Y-%m-%d'),
+                    'end_date': request.end.strftime('%Y-%m-%d'),
+                    'available_date_range': None
+                }],
+                requested_period=f"{request.start.strftime('%Y-%m-%d')} ~ {request.end.strftime('%Y-%m-%d')}",
+                total_stocks=len(request.holdings)
+            )
+        
         price_data = price_pivot[common_stocks]
         
         # 벤치마크 수익률 조회 (베타 계산용)
@@ -418,7 +500,15 @@ class BacktestService:
             
             result_summary.append(summary_item)
         
-        return portfolio_data, result_summary, execution_logs, final_status, benchmark_info
+        # 실제 거래일 범위 추출
+        if portfolio_data:
+            actual_start = portfolio_data[0]['datetime']
+            actual_end = portfolio_data[-1]['datetime']
+        else:
+            actual_start = request.start
+            actual_end = request.end
+        
+        return portfolio_data, result_summary, execution_logs, final_status, benchmark_info, actual_start, actual_end
     
     async def _execute_benchmark_operations(
         self,
@@ -777,7 +867,9 @@ class BacktestService:
         self, 
         request: BacktestRequest, 
         portfolio_data: List[Dict[str, Any]], 
-        portfolio_id: Optional[int] = None
+        portfolio_id: Optional[int] = None,
+        actual_start: Optional[datetime] = None,
+        actual_end: Optional[datetime] = None
     ) -> PortfolioSnapshotResponse:
         """포트폴리오 스냅샷 응답 생성"""
         if not portfolio_data:
@@ -802,14 +894,18 @@ class BacktestService:
                 quantity=holding.quantity
             ))
         
+        # 실제 거래일 사용 (없으면 원래 요청 날짜 사용)
+        effective_start = actual_start if actual_start else request.start
+        effective_end = actual_end if actual_end else request.end
+        
         # 포트폴리오 스냅샷 응답 생성
         return PortfolioSnapshotResponse(
             id=12345,  # 고정 ID (실제 DB 저장하지 않음)
             portfolio_id=portfolio_id,
             base_value=base_value,
             current_value=current_value,
-            start_at=request.start,
-            end_at=request.end,
+            start_at=effective_start,
+            end_at=effective_end,
             created_at=datetime.utcnow(),
             execution_time=0.0,  # 나중에 설정됨
             holdings=holdings
