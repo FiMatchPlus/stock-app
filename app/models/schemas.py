@@ -378,6 +378,7 @@ class AnalysisRequest(BaseModel):
     risk_free_rate: Optional[float] = Field(None, description="연간 무위험 수익률 (소수). 미제공 시 0 가정")
     callback_url: Optional[str] = Field(None, description="결과를 받을 콜백 URL (비동기 처리 시 필수)")
     analysis_id: Optional[int] = Field(None, description="클라이언트에서 제공하는 분석 ID (콜백 시 그대로 반환)")
+    portfolio_id: Optional[int] = Field(None, description="포트폴리오 ID (콜백 시 그대로 반환)")
 
 
 class BetaAnalysis(BaseModel):
@@ -534,4 +535,5 @@ class EnhancedAnalysisResponse(BaseModel):
     notes: Optional[str] = Field(None, description="참고 사항")
     execution_time: Optional[float] = Field(None, description="실행 시간 (초)")
     analysis_id: Optional[int] = Field(None, description="클라이언트에서 제공한 분석 ID")
+    portfolio_id: Optional[int] = Field(None, description="클라이언트에서 제공한 포트폴리오 ID")
     timestamp: Optional[datetime] = Field(default_factory=get_kst_now, description="응답 생성 시각")
