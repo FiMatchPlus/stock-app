@@ -16,7 +16,9 @@
       "post": {
         "summary": "비동기 포트폴리오 분석 시작",
         "description": "포트폴리오 분석을 백그라운드에서 실행하고 완료 시 콜백 URL로 결과를 전송합니다. 이동 윈도우 기반 MPT 최적화 및 백테스팅 분석을 수행합니다.",
-        "tags": ["analysis"],
+        "tags": [
+          "analysis"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -101,7 +103,9 @@
       "post": {
         "summary": "동기 포트폴리오 분석 실행",
         "description": "포트폴리오 분석을 즉시 실행하고 결과를 반환합니다. 3년 이동 윈도우 기반 MPT 최적화 및 백테스팅 분석을 수행합니다. 최근 시점의 최적 비중과 백테스팅 기반 검증된 성능 지표를 제공합니다.",
-        "tags": ["analysis"],
+        "tags": [
+          "analysis"
+        ],
         "requestBody": {
           "required": true,
           "content": {
@@ -170,6 +174,8 @@
                       "information_ratio": 0.15,
                       "max_drawdown": -0.22,
                       "downside_deviation": 0.12,
+                      "var_value": -0.15,
+                      "cvar_value": -0.19,
                       "upside_beta": 1.05,
                       "downside_beta": 0.85,
                       "correlation_with_benchmark": 0.78
@@ -188,6 +194,8 @@
                       "information_ratio": 0.18,
                       "max_drawdown": -0.25,
                       "downside_deviation": 0.14,
+                      "var_value": -0.18,
+                      "cvar_value": -0.23,
                       "upside_beta": 1.08,
                       "downside_beta": 0.92,
                       "correlation_with_benchmark": 0.82
@@ -250,7 +258,9 @@
     "schemas": {
       "AnalysisRequest": {
         "type": "object",
-        "required": ["holdings"],
+        "required": [
+          "holdings"
+        ],
         "properties": {
           "holdings": {
             "type": "array",
@@ -293,7 +303,10 @@
       },
       "AnalysisHoldingInput": {
         "type": "object",
-        "required": ["stock_code", "quantity"],
+        "required": [
+          "stock_code",
+          "quantity"
+        ],
         "properties": {
           "stock_code": {
             "type": "string",
@@ -311,7 +324,14 @@
       },
       "EnhancedAnalysisResponse": {
         "type": "object",
-        "required": ["success", "min_variance", "max_sharpe", "metrics", "risk_free_rate_used", "analysis_period"],
+        "required": [
+          "success",
+          "min_variance",
+          "max_sharpe",
+          "metrics",
+          "risk_free_rate_used",
+          "analysis_period"
+        ],
         "properties": {
           "success": {
             "type": "boolean",
@@ -389,7 +409,11 @@
       },
       "AnalysisJobResponse": {
         "type": "object",
-        "required": ["job_id", "status", "message"],
+        "required": [
+          "job_id",
+          "status",
+          "message"
+        ],
         "properties": {
           "job_id": {
             "type": "string",
@@ -410,7 +434,11 @@
       },
       "AnalysisCallbackResponse": {
         "type": "object",
-        "required": ["job_id", "execution_time", "timestamp"],
+        "required": [
+          "job_id",
+          "execution_time",
+          "timestamp"
+        ],
         "properties": {
           "job_id": {
             "type": "string",
@@ -489,7 +517,9 @@
       },
       "PortfolioWeights": {
         "type": "object",
-        "required": ["weights"],
+        "required": [
+          "weights"
+        ],
         "properties": {
           "weights": {
             "type": "object",
@@ -511,10 +541,22 @@
         "type": "object",
         "description": "향상된 포트폴리오 성과 지표 (백테스팅 기반 평균)",
         "required": [
-          "expected_return", "std_deviation", "beta", "alpha", "jensen_alpha",
-          "tracking_error", "sharpe_ratio", "treynor_ratio", "sortino_ratio",
-          "calmar_ratio", "information_ratio", "max_drawdown", "downside_deviation",
-          "upside_beta", "downside_beta", "correlation_with_benchmark"
+          "expected_return",
+          "std_deviation",
+          "beta",
+          "alpha",
+          "jensen_alpha",
+          "tracking_error",
+          "sharpe_ratio",
+          "treynor_ratio",
+          "sortino_ratio",
+          "calmar_ratio",
+          "information_ratio",
+          "max_drawdown",
+          "downside_deviation",
+          "upside_beta",
+          "downside_beta",
+          "correlation_with_benchmark"
         ],
         "properties": {
           "expected_return": {
@@ -582,6 +624,16 @@
             "description": "하방편차",
             "example": 0.12
           },
+          "var_value": {
+            "type": "number",
+            "description": "VaR 95% (Value at Risk)",
+            "example": -0.15
+          },
+          "cvar_value": {
+            "type": "number",
+            "description": "CVaR 95% (Conditional Value at Risk)",
+            "example": -0.20
+          },
           "upside_beta": {
             "type": "number",
             "description": "상승 베타",
@@ -603,8 +655,13 @@
         "type": "object",
         "description": "벤치마크 비교 분석 결과",
         "required": [
-          "benchmark_code", "benchmark_return", "benchmark_volatility",
-          "excess_return", "relative_volatility", "security_selection", "timing_effect"
+          "benchmark_code",
+          "benchmark_return",
+          "benchmark_volatility",
+          "excess_return",
+          "relative_volatility",
+          "security_selection",
+          "timing_effect"
         ],
         "properties": {
           "benchmark_code": {
@@ -646,7 +703,10 @@
       },
       "ErrorResponse": {
         "type": "object",
-        "required": ["error", "timestamp"],
+        "required": [
+          "error",
+          "timestamp"
+        ],
         "properties": {
           "error": {
             "type": "string",
