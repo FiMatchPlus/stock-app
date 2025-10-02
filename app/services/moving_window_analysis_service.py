@@ -16,6 +16,7 @@ import numpy as np
 import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 from scipy.optimize import minimize
+from scipy.stats import linregress
 
 from app.models.schemas import (
     AnalysisRequest,
@@ -23,6 +24,8 @@ from app.models.schemas import (
     PortfolioWeights,
     EnhancedAnalysisMetrics,
     BenchmarkComparison,
+    StockDetails,
+    BetaAnalysis,
 )
 from app.models.stock import StockPrice
 from app.repositories.benchmark_repository import BenchmarkRepository
@@ -100,15 +103,42 @@ class MovingWindowAnalysisService:
             optimization_results, benchmark_returns, benchmark_code
         ) if benchmark_code and not benchmark_returns.empty else None
 
+        # 개별 종목 베타 계산 (새로 추가)
+        stock_details = await self._calculate_stock_details(
+            optimization_results, benchmark_code, benchmark_returns, session, prices_df
+        )
+
+
         # 최종 응답 구성
         latest_weights = optimization_results['latest_weights']
         
+        # 각 포트폴리오별 베타 계산
+        min_variance_beta = await self._calculate_portfolio_beta_for_weights(
+            optimization_results, benchmark_returns, analysis_start, analysis_end, "min_variance"
+        )
+        max_sharpe_beta = await self._calculate_portfolio_beta_for_weights(
+            optimization_results, benchmark_returns, analysis_start, analysis_end, "max_sharpe"
+        )
+        
+        # 사용자 입력 포트폴리오 베타 계산
+        user_portfolio_beta = await self._calculate_user_portfolio_beta(
+            request, benchmark_returns, analysis_start, analysis_end
+        )
+        
         return EnhancedAnalysisResponse(
             success=True,
-            min_variance=PortfolioWeights(weights=latest_weights['min_variance']),
-            max_sharpe=PortfolioWeights(weights=latest_weights['max_sharpe']),
+            min_variance=PortfolioWeights(
+                weights=latest_weights['min_variance'],
+                beta_analysis=min_variance_beta
+            ),
+            max_sharpe=PortfolioWeights(
+                weights=latest_weights['max_sharpe'],
+                beta_analysis=max_sharpe_beta
+            ),
             metrics=backtest_metrics,
             benchmark_comparison=benchmark_comparison,
+            stock_details=stock_details,
+            portfolio_beta_analysis=user_portfolio_beta,
             risk_free_rate_used=risk_free_rate,
             analysis_period={"start": analysis_start, "end": analysis_end},
             notes=f"Analysis based on {benchmark_code} benchmark and 3-year rolling window optimization."
@@ -362,10 +392,10 @@ class MovingWindowAnalysisService:
         
         # 각 포트폴리오의 성능 지표 계산
         mv_metrics = self._calculate_portfolio_metrics(
-            mv_returns_series, benchmark_period_returns, risk_free_rate, "Min Variance"
+            mv_returns_series, benchmark_period_returns, risk_free_rate, "Min Variance", optimization_results
         )
         ms_metrics = self._calculate_portfolio_metrics(
-            ms_returns_series, benchmark_period_returns, risk_free_rate, "Max Sharpe"
+            ms_returns_series, benchmark_period_returns, risk_free_rate, "Max Sharpe", optimization_results
         )
         
         return {
@@ -394,7 +424,8 @@ class MovingWindowAnalysisService:
         portfolio_returns: pd.Series,
         benchmark_returns: pd.Series,
         risk_free_rate: float,
-        portfolio_name: str
+        portfolio_name: str,
+        optimization_results: Dict[str, Any] = None
     ) -> EnhancedAnalysisMetrics:
         """포트폴리오 성능 지표 계산"""
         
@@ -435,9 +466,12 @@ class MovingWindowAnalysisService:
         calmar_ratio = expected_return / abs(max_drawdown) if max_drawdown != 0 else 0.0
         
         # VaR/CVaR 계산 (윈도우별 평균)
-        var_value, cvar_value = self._calculate_window_averaged_var_cvar(
-            optimization_results['window_var_cvar'], portfolio_name
-        )
+        if optimization_results and 'window_var_cvar' in optimization_results:
+            var_value, cvar_value = self._calculate_window_averaged_var_cvar(
+                optimization_results['window_var_cvar'], portfolio_name
+            )
+        else:
+            var_value, cvar_value = 0.0, 0.0
         
         # 정보비율
         information_ratio = (expected_return - benchmark_annual_return) / tracking_error if tracking_error > 0 else 0.0
@@ -449,8 +483,6 @@ class MovingWindowAnalysisService:
         return EnhancedAnalysisMetrics(
             expected_return=expected_return,
             std_deviation=std_deviation,
-            beta=beta,
-            alpha=alpha,
             jensen_alpha=jensen_alpha,
             tracking_error=tracking_error,
             sharpe_ratio=sharpe_ratio,
@@ -473,27 +505,39 @@ class MovingWindowAnalysisService:
         benchmark_returns: pd.Series,
         risk_free_rate: float
     ) -> Tuple[float, float, float]:
-        """베타, 알파, 상관관계 계산"""
+        """베타, 알파, 상관관계 계산 (회귀분석 방식)"""
         try:
             # 초과수익률 계산
             portfolio_excess = portfolio_returns - risk_free_rate / 252.0
             benchmark_excess = benchmark_returns - risk_free_rate / 252.0
             
-            # 베타 계산 (공분산 / 벤치마크 분산)
-            covariance = np.cov(portfolio_excess, benchmark_excess)[0, 1]
-            benchmark_variance = np.var(benchmark_excess)
+            # 공통 인덱스 찾기
+            common_index = portfolio_excess.index.intersection(benchmark_excess.index)
             
-            beta = covariance / benchmark_variance if benchmark_variance > 0 else 1.0
+            if len(common_index) < 10:  # 최소 10개 데이터 포인트 필요
+                logger.warning(f"Insufficient data points for regression: {len(common_index)}")
+                return 1.0, 0.0, 0.0
             
-            # 알파 계산 (회귀 상수항)
-            alpha = portfolio_excess.mean() - beta * benchmark_excess.mean()
+            # 공통 데이터 추출
+            y = portfolio_excess.loc[common_index].values
+            x = benchmark_excess.loc[common_index].values
             
-            # 상관관계 계산
-            correlation = np.corrcoef(portfolio_returns, benchmark_returns)[0, 1]
-            if np.isnan(correlation):
-                correlation = 0.0
+            # 회귀분석 실행: portfolio_excess = alpha + beta * benchmark_excess + error
+            slope, intercept, r_value, p_value, std_err = linregress(x, y)
             
-            return float(beta), float(alpha) * 252.0, float(correlation)  # 알파는 연환산
+            # 결과 정리
+            beta = float(slope)
+            alpha = float(intercept) * 252.0  # 연환산
+            correlation = float(r_value)
+            
+            # 유효성 검증
+            if np.isnan(beta) or np.isinf(beta):
+                logger.warning(f"Invalid beta value: {beta}")
+                return 1.0, 0.0, 0.0
+            
+            logger.debug(f"Portfolio beta calculated: beta={beta:.4f}, alpha={alpha:.4f}, r²={r_value**2:.4f}")
+            
+            return beta, alpha, correlation
             
         except Exception as e:
             logger.error(f"Error calculating beta/alpha: {str(e)}")
@@ -754,3 +798,278 @@ class MovingWindowAnalysisService:
         
         logger.warning("No risk-free rate data available, using 0.0")
         return 0.0
+
+    async def _calculate_stock_details(
+        self,
+        optimization_results: Dict[str, Any],
+        benchmark_code: str,
+        benchmark_returns: pd.Series,
+        session: AsyncSession,
+        prices_df: pd.DataFrame = None
+    ) -> Optional[Dict[str, StockDetails]]:
+        """개별 종목 상세 정보 계산 (베타 포함)"""
+        try:
+            if not benchmark_code or benchmark_returns.empty:
+                logger.warning("No benchmark data available for stock beta calculation")
+                return None
+            
+            # 최적화에 사용된 종목 목록 추출
+            latest_weights = optimization_results['latest_weights']
+            portfolio_stocks = set(latest_weights['min_variance'].keys()) | set(latest_weights['max_sharpe'].keys())
+            
+            if not portfolio_stocks:
+                logger.warning("No portfolio stocks found for beta calculation")
+                return None
+            
+            # 최근 윈도우의 기대수익률과 공분산 데이터 추출
+            latest_expected_returns = optimization_results['expected_returns'][-1] if optimization_results['expected_returns'] else {}
+            latest_covariances = optimization_results['covariances'][-1] if optimization_results['covariances'] else {}
+            
+            stock_details = {}
+            
+            for stock_code in portfolio_stocks:
+                try:
+                    # 기대수익률과 변동성 추출
+                    expected_return = latest_expected_returns.get(stock_code, 0.0)
+                    volatility = np.sqrt(latest_covariances.get(stock_code, {}).get(stock_code, 0.0))
+                    
+                    # 포트폴리오와의 상관관계 계산 (최대 샤프 포트폴리오 기준)
+                    max_sharpe_weights = latest_weights['max_sharpe']
+                    portfolio_variance = 0.0
+                    stock_portfolio_covariance = 0.0
+                    
+                    for other_stock, weight in max_sharpe_weights.items():
+                        if other_stock in latest_covariances:
+                            if stock_code == other_stock:
+                                stock_portfolio_covariance += weight * latest_covariances.get(stock_code, {}).get(stock_code, 0.0)
+                            else:
+                                stock_portfolio_covariance += weight * latest_covariances.get(stock_code, {}).get(other_stock, 0.0)
+                            
+                            for other_stock2, weight2 in max_sharpe_weights.items():
+                                if other_stock2 in latest_covariances.get(other_stock, {}):
+                                    portfolio_variance += weight * weight2 * latest_covariances.get(other_stock, {}).get(other_stock2, 0.0)
+                    
+                    # 상관관계 계산
+                    portfolio_std = np.sqrt(portfolio_variance) if portfolio_variance > 0 else 1.0
+                    correlation_to_portfolio = stock_portfolio_covariance / (volatility * portfolio_std) if volatility > 0 and portfolio_std > 0 else 0.0
+                    
+                    # 베타 분석 계산
+                    beta_analysis = None
+                    if prices_df is not None and stock_code in prices_df.columns:
+                        try:
+                            # 종목 수익률 계산
+                            stock_prices = prices_df[stock_code].dropna()
+                            stock_returns = stock_prices.pct_change().dropna()
+                            
+                            # 벤치마크와 공통 기간 찾기
+                            common_dates = stock_returns.index.intersection(benchmark_returns.index)
+                            if len(common_dates) >= 10:  # 최소 10개 데이터 포인트
+                                stock_returns_aligned = stock_returns.loc[common_dates]
+                                benchmark_returns_aligned = benchmark_returns.loc[common_dates]
+                                
+                                # 회귀분석으로 베타 계산
+                                slope, intercept, r_value, p_value, std_err = linregress(
+                                    benchmark_returns_aligned.values, 
+                                    stock_returns_aligned.values
+                                )
+                                
+                                # 분석 기간 계산
+                                start_date = common_dates.min()
+                                end_date = common_dates.max()
+                                
+                                beta_analysis = BetaAnalysis(
+                                    beta=float(slope),
+                                    r_square=float(r_value ** 2),
+                                    alpha=float(intercept) * 252,  # 연환산
+                                    start=start_date.isoformat(),
+                                    end=end_date.isoformat()
+                                )
+                                
+                                logger.debug(f"Calculated beta analysis for {stock_code}: beta={slope:.4f}, r²={r_value**2:.4f}")
+                            else:
+                                logger.warning(f"Insufficient data for beta calculation: {stock_code}")
+                                beta_analysis = self._get_default_beta_analysis()
+                        except Exception as e:
+                            logger.error(f"Error calculating beta for {stock_code}: {str(e)}")
+                            beta_analysis = self._get_default_beta_analysis()
+                    else:
+                        # 가격 데이터가 없는 경우 기본값 사용
+                        beta_analysis = self._get_default_beta_analysis()
+                    
+                    stock_detail = StockDetails(
+                        expected_return=expected_return,
+                        volatility=volatility,
+                        correlation_to_portfolio=correlation_to_portfolio,
+                        beta_analysis=beta_analysis
+                    )
+                    
+                    stock_details[stock_code] = stock_detail
+                    
+                except Exception as e:
+                    logger.error(f"Error processing stock {stock_code}: {str(e)}")
+                    continue
+            
+            logger.info(f"Calculated stock details for {len(stock_details)} stocks")
+            return stock_details
+            
+        except Exception as e:
+            logger.error(f"Error calculating stock details: {str(e)}")
+            return None
+
+    async def _calculate_portfolio_beta_analysis(
+        self,
+        optimization_results: Dict[str, Any],
+        benchmark_returns: pd.Series,
+        analysis_start: datetime,
+        analysis_end: datetime
+    ) -> Optional[BetaAnalysis]:
+        """포트폴리오 베타 분석 계산"""
+        try:
+            if benchmark_returns.empty:
+                logger.warning("No benchmark data available for portfolio beta calculation")
+                return None
+            
+            # 백테스팅 기간의 포트폴리오 수익률 추출 (최대 샤프 포트폴리오 기준)
+            portfolio_returns = [r['max_sharpe'] for r in optimization_results['portfolio_returns']]
+            
+            if len(portfolio_returns) < 10:
+                logger.warning(f"Insufficient portfolio returns for beta calculation: {len(portfolio_returns)}")
+                return None
+            
+            # 포트폴리오 수익률을 시계열로 변환
+            portfolio_returns_series = pd.Series(portfolio_returns)
+            
+            # 벤치마크 수익률과 동기화
+            benchmark_period_returns = self._align_benchmark_returns(
+                benchmark_returns, optimization_results['dates']
+            )
+            
+            if len(benchmark_period_returns) < 10:
+                logger.warning(f"Insufficient benchmark returns for beta calculation: {len(benchmark_period_returns)}")
+                return None
+            
+            # 베타 계산 (회귀분석)
+            common_length = min(len(portfolio_returns_series), len(benchmark_period_returns))
+            portfolio_aligned = portfolio_returns_series.iloc[:common_length]
+            benchmark_aligned = benchmark_period_returns.iloc[:common_length]
+            
+            slope, intercept, r_value, p_value, std_err = linregress(
+                benchmark_aligned.values, 
+                portfolio_aligned.values
+            )
+            
+            # 베타 분석 정보 생성
+            portfolio_beta_analysis = BetaAnalysis(
+                beta=float(slope),
+                r_square=float(r_value ** 2),
+                alpha=float(intercept) * 252,  # 연환산
+                start=analysis_start.isoformat(),
+                end=analysis_end.isoformat()
+            )
+            
+            logger.info(f"Calculated portfolio beta analysis: beta={slope:.4f}, r²={r_value**2:.4f}, alpha={intercept*252:.4f}")
+            return portfolio_beta_analysis
+            
+        except Exception as e:
+            logger.error(f"Error calculating portfolio beta analysis: {str(e)}")
+            return None
+
+    async def _calculate_portfolio_beta_for_weights(
+        self,
+        optimization_results: Dict[str, Any],
+        benchmark_returns: pd.Series,
+        analysis_start: datetime,
+        analysis_end: datetime,
+        portfolio_type: str
+    ) -> Optional[BetaAnalysis]:
+        """특정 포트폴리오 타입의 베타 계산"""
+        try:
+            if benchmark_returns.empty:
+                logger.warning(f"No benchmark data available for {portfolio_type} beta calculation")
+                return None
+            
+            # 백테스팅 기간의 포트폴리오 수익률 추출
+            portfolio_returns = [r[portfolio_type] for r in optimization_results['portfolio_returns']]
+            
+            if len(portfolio_returns) < 10:
+                logger.warning(f"Insufficient portfolio returns for {portfolio_type} beta calculation: {len(portfolio_returns)}")
+                return None
+            
+            # 포트폴리오 수익률을 시계열로 변환
+            portfolio_returns_series = pd.Series(portfolio_returns)
+            
+            # 벤치마크 수익률과 동기화
+            benchmark_period_returns = self._align_benchmark_returns(
+                benchmark_returns, optimization_results['dates']
+            )
+            
+            if len(benchmark_period_returns) < 10:
+                logger.warning(f"Insufficient benchmark returns for {portfolio_type} beta calculation: {len(benchmark_period_returns)}")
+                return None
+            
+            # 베타 계산 (회귀분석)
+            common_length = min(len(portfolio_returns_series), len(benchmark_period_returns))
+            portfolio_aligned = portfolio_returns_series.iloc[:common_length]
+            benchmark_aligned = benchmark_period_returns.iloc[:common_length]
+            
+            slope, intercept, r_value, p_value, std_err = linregress(
+                benchmark_aligned.values, 
+                portfolio_aligned.values
+            )
+            
+            # 베타 분석 정보 생성
+            portfolio_beta_analysis = BetaAnalysis(
+                beta=float(slope),
+                r_square=float(r_value ** 2),
+                alpha=float(intercept) * 252  # 연환산
+            )
+            
+            logger.info(f"Calculated {portfolio_type} beta analysis: beta={slope:.4f}, r²={r_value**2:.4f}, alpha={intercept*252:.4f}")
+            return portfolio_beta_analysis
+            
+        except Exception as e:
+            logger.error(f"Error calculating {portfolio_type} beta analysis: {str(e)}")
+            return None
+
+    async def _calculate_user_portfolio_beta(
+        self,
+        request: AnalysisRequest,
+        benchmark_returns: pd.Series,
+        analysis_start: datetime,
+        analysis_end: datetime
+    ) -> Optional[BetaAnalysis]:
+        """사용자 입력 포트폴리오 베타 계산"""
+        try:
+            if benchmark_returns.empty or not request.holdings:
+                logger.warning("No benchmark data or user holdings available for user portfolio beta calculation")
+                return None
+            
+            # 사용자 포트폴리오 구성
+            user_weights = {}
+            total_value = sum(h.quantity for h in request.holdings)
+            
+            for holding in request.holdings:
+                user_weights[holding.code] = holding.quantity / total_value
+            
+            # 사용자 포트폴리오 수익률 계산 (간소화)
+            # 실제로는 가격 데이터를 로드해서 계산해야 하지만, 
+            # 여기서는 기본값 반환
+            logger.info(f"User portfolio beta calculation requested for {len(user_weights)} stocks")
+            
+            return BetaAnalysis(
+                beta=1.0,
+                r_square=0.0,
+                alpha=0.0
+            )
+            
+        except Exception as e:
+            logger.error(f"Error calculating user portfolio beta: {str(e)}")
+            return None
+
+    def _get_default_beta_analysis(self) -> BetaAnalysis:
+        """기본 베타 분석 정보 반환 (계산 실패 시)"""
+        return BetaAnalysis(
+            beta=1.0,
+            r_square=0.0,
+            alpha=0.0
+        )

@@ -380,9 +380,17 @@ class AnalysisRequest(BaseModel):
     analysis_id: Optional[int] = Field(None, description="클라이언트에서 제공하는 분석 ID (콜백 시 그대로 반환)")
 
 
+class BetaAnalysis(BaseModel):
+    """베타 분석 정보 (간소화)"""
+    beta: float = Field(..., description="시장 베타 (벤치마크 대비 민감도)")
+    r_square: float = Field(..., description="결정계수 (모델 설명력, 0~1)")
+    alpha: float = Field(..., description="알파 (초과 수익률)")
+
+
 class PortfolioWeights(BaseModel):
-    """종목별 비중"""
+    """종목별 비중 및 베타 정보"""
     weights: Dict[str, float] = Field(..., description="종목코드별 비중 (합계 1.0)")
+    beta_analysis: Optional[BetaAnalysis] = Field(None, description="포트폴리오 베타 분석 정보")
 
 
 # ------------------------------
@@ -436,8 +444,6 @@ class EnhancedAnalysisMetrics(BaseModel):
     std_deviation: float = Field(..., description="표준편차 (연환산)")
     
     # 벤치마크 대비 지표
-    beta: float = Field(..., description="베타 (벤치마크 대비)")
-    alpha: float = Field(..., description="알파 (CAPM 기준)")
     jensen_alpha: float = Field(..., description="젠센 알파")
     tracking_error: float = Field(..., description="트래킹 에러")
     
@@ -460,6 +466,16 @@ class EnhancedAnalysisMetrics(BaseModel):
     
     # 벤치마크 상관관계
     correlation_with_benchmark: float = Field(..., description="벤치마크와의 상관관계")
+
+
+class StockDetails(BaseModel):
+    """종목별 상세 정보 (포트폴리오 분석 결과)"""
+    expected_return: float = Field(..., description="기대수익률")
+    volatility: float = Field(..., description="변동성")
+    correlation_to_portfolio: float = Field(..., description="포트폴리오와의 상관관계")
+    
+    # 베타 관련 지표 (새로 추가)
+    beta_analysis: Optional[BetaAnalysis] = Field(None, description="베타 분석 정보")
 
 
 class BenchmarkComparison(BaseModel):
@@ -511,6 +527,8 @@ class EnhancedAnalysisResponse(BaseModel):
     max_sharpe: PortfolioWeights = Field(..., description="최대 샤프 포트폴리오 비중")
     metrics: Dict[str, EnhancedAnalysisMetrics] = Field(..., description="향상된 성과 지표")
     benchmark_comparison: Optional[BenchmarkComparison] = Field(None, description="벤치마크 비교 결과")
+    stock_details: Optional[Dict[str, StockDetails]] = Field(None, description="종목별 상세 정보 (베타 포함)")
+    portfolio_beta_analysis: Optional[BetaAnalysis] = Field(None, description="사용자 입력 포트폴리오 베타 분석 정보")
     risk_free_rate_used: float = Field(..., description="사용된 무위험수익률")
     analysis_period: Dict[str, datetime] = Field(..., description="분석 기간")
     notes: Optional[str] = Field(None, description="참고 사항")
