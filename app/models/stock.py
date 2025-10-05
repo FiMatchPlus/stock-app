@@ -61,10 +61,9 @@ class RiskFreeRate(Base):
     __tablename__ = "risk_free_rates"
     
     id = Column(BigInteger, primary_key=True, index=True)
-    rate_type = Column(String(20), nullable=False, index=True)  # CD91, Treasury3Y, BOK_BASE 등
+    rate_type = Column(String(20), nullable=False, index=True)  # TB1Y, TB3Y, TB5Y
     datetime = Column(DateTime, nullable=False, index=True)  # KST 기준
-    rate = Column(DECIMAL(8, 4), nullable=False)  # 연율 기준 금리 (% 단위)
-    daily_rate = Column(DECIMAL(12, 8), Computed('rate / 365.0 / 100.0'))  # 일별 금리
+    rate = Column(DECIMAL(12, 8), nullable=False)  # 일별 수익률
     source = Column(String(20), nullable=False)  # 데이터 출처 (BOK, KOFIA 등)
     created_at = Column(DateTime, default=get_kst_now)
     updated_at = Column(DateTime, default=get_kst_now, onupdate=get_kst_now)
