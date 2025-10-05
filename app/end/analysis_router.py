@@ -11,7 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.models.database import get_async_session
 from app.models.schemas import (
     AnalysisRequest,
-    EnhancedAnalysisResponse,
+    PortfolioAnalysisResponse,
     AnalysisJobResponse,
     AnalysisCallbackResponse,
     BenchmarkPriceResponse,
@@ -115,7 +115,7 @@ async def start_analysis_async(
 
 @router.post(
     "/run",
-    response_model=EnhancedAnalysisResponse,
+    response_model=PortfolioAnalysisResponse,
     summary="동기 포트폴리오 분석 실행",
     description="포트폴리오 분석을 즉시 실행하고 결과를 반환합니다. 이동 윈도우 기반 MPT 최적화 및 백테스팅 분석을 수행합니다."
 )
@@ -123,7 +123,7 @@ async def run_analysis_sync(
     request: AnalysisRequest,
     session: AsyncSession = Depends(get_async_session),
     analysis_service: AnalysisService = Depends(get_analysis_service),
-) -> EnhancedAnalysisResponse:
+) -> PortfolioAnalysisResponse:
     """동기 포트폴리오 분석 실행
     
     기본 분석과 고급 분석을 모두 포함하여 포트폴리오 성과를 종합적으로 분석합니다.

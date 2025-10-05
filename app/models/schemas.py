@@ -388,10 +388,40 @@ class BetaAnalysis(BaseModel):
     alpha: float = Field(..., description="알파 (초과 수익률)")
 
 
-class PortfolioWeights(BaseModel):
-    """종목별 비중 및 베타 정보"""
+class PortfolioData(BaseModel):
+    """포트폴리오 데이터"""
+    type: str = Field(..., description="포트폴리오 타입 (user, min_variance, max_sharpe)")
     weights: Dict[str, float] = Field(..., description="종목코드별 비중 (합계 1.0)")
     beta_analysis: Optional[BetaAnalysis] = Field(None, description="포트폴리오 베타 분석 정보")
+    metrics: Optional[EnhancedAnalysisMetrics] = Field(None, description="성과 지표")
+    benchmark_comparison: Optional[BenchmarkComparison] = Field(None, description="벤치마크 비교 결과")
+
+
+class AnalysisMetadata(BaseModel):
+    """분석 메타데이터"""
+    risk_free_rate_used: float = Field(..., description="사용된 무위험수익률")
+    period: Dict[str, datetime] = Field(..., description="분석 기간")
+    notes: Optional[str] = Field(None, description="참고 사항")
+    execution_time: Optional[float] = Field(None, description="실행 시간 (초)")
+    analysis_id: Optional[int] = Field(None, description="클라이언트에서 제공한 분석 ID")
+    portfolio_id: Optional[int] = Field(None, description="클라이언트에서 제공한 포트폴리오 ID")
+    timestamp: Optional[datetime] = Field(default_factory=get_kst_now, description="응답 생성 시각")
+
+
+class BenchmarkInfo(BaseModel):
+    """벤치마크 정보"""
+    code: str = Field(..., description="벤치마크 지수 코드")
+    return: float = Field(..., description="벤치마크 수익률 (연환산)")
+    volatility: float = Field(..., description="벤치마크 변동성")
+
+
+class PortfolioAnalysisResponse(BaseModel):
+    """새로운 포트폴리오 분석 응답"""
+    success: bool = Field(True, description="성공 여부")
+    metadata: AnalysisMetadata = Field(..., description="분석 메타데이터")
+    benchmark: Optional[BenchmarkInfo] = Field(None, description="벤치마크 정보")
+    portfolios: List[PortfolioData] = Field(..., description="포트폴리오 데이터 목록")
+    stock_details: Optional[Dict[str, StockDetails]] = Field(None, description="종목별 상세 정보")
 
 
 # ------------------------------
