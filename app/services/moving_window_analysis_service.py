@@ -24,7 +24,7 @@ from app.models.schemas import (
     PortfolioData,
     AnalysisMetadata,
     BenchmarkInfo,
-    EnhancedAnalysisMetrics,
+    AnalysisMetrics,
     BenchmarkComparison,
     StockDetails,
     BetaAnalysis,
@@ -133,7 +133,7 @@ class MovingWindowAnalysisService:
             benchmark_volatility = benchmark_returns.std() * np.sqrt(252)
             benchmark_info = BenchmarkInfo(
                 code=benchmark_code,
-                return=float(benchmark_annual_return),
+                benchmark_return=float(benchmark_annual_return),
                 volatility=float(benchmark_volatility)
             )
         
@@ -381,7 +381,7 @@ class MovingWindowAnalysisService:
         optimization_results: Dict[str, Any],
         benchmark_returns: pd.Series,
         risk_free_rate: float,
-    ) -> Dict[str, EnhancedAnalysisMetrics]:
+    ) -> Dict[str, AnalysisMetrics]:
         """백테스팅 기반 성능 지표 계산"""
         
         logger.info("Calculating backtest metrics")
@@ -438,7 +438,7 @@ class MovingWindowAnalysisService:
         risk_free_rate: float,
         portfolio_name: str,
         optimization_results: Dict[str, Any] = None
-    ) -> EnhancedAnalysisMetrics:
+    ) -> AnalysisMetrics:
         """포트폴리오 성능 지표 계산"""
         
         # 기본 통계
@@ -492,7 +492,7 @@ class MovingWindowAnalysisService:
         capm_expected_return = risk_free_rate + beta * (benchmark_annual_return - risk_free_rate)
         jensen_alpha = expected_return - capm_expected_return
 
-        return EnhancedAnalysisMetrics(
+        return AnalysisMetrics(
             expected_return=expected_return,
             std_deviation=std_deviation,
             jensen_alpha=jensen_alpha,
@@ -1085,7 +1085,7 @@ class MovingWindowAnalysisService:
         benchmark_returns: pd.Series,
         analysis_start: datetime,
         analysis_end: datetime,
-        backtest_metrics: Dict[str, EnhancedAnalysisMetrics]
+        backtest_metrics: Dict[str, AnalysisMetrics]
     ) -> List[PortfolioData]:
         """포트폴리오 데이터 구성"""
         portfolios = []
@@ -1156,7 +1156,7 @@ class MovingWindowAnalysisService:
         benchmark_returns: pd.Series,
         analysis_start: datetime,
         analysis_end: datetime
-    ) -> Optional[EnhancedAnalysisMetrics]:
+    ) -> Optional[AnalysisMetrics]:
         """사용자 포트폴리오 성과 지표 계산"""
         # 간소화된 구현 - 실제로는 가격 데이터를 로드해서 계산해야 함
         logger.info("User portfolio metrics calculation requested")
