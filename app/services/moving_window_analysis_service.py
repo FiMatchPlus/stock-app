@@ -126,7 +126,7 @@ class MovingWindowAnalysisService:
         # 최종 응답 구성
         latest_weights = optimization_results['latest_weights']
         
-        # 각 포트폴리오별 완전한 데이터 구성
+        # 각 포트폴리오별 데이터 구성
         portfolios = await self._build_portfolio_data(
             request,
             optimization_results,
