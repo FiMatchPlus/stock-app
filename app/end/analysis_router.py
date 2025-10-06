@@ -133,13 +133,14 @@ async def run_analysis_and_callback(
         try:
             logger.info(f"Starting background analysis", job_id=job_id)
             
-            # 분석 실행 (callback_url 제거한 요청으로)
+            # 분석 실행
             analysis_request = AnalysisRequest(
                 holdings=request.holdings,
                 lookback_years=request.lookback_years,
                 benchmark=request.benchmark,
                 risk_free_rate=request.risk_free_rate,
-                portfolio_id=request.portfolio_id
+                portfolio_id=request.portfolio_id,
+                callback_url=request.callback_url
             )
             
             result = await analysis_service.run_analysis(
