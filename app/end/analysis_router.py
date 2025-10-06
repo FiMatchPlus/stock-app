@@ -14,6 +14,7 @@ from app.models.schemas import (
     PortfolioAnalysisResponse,
     AnalysisJobResponse,
     AnalysisCallbackResponse,
+    AnalysisCallbackMetadata,
     BenchmarkPriceResponse,
     RiskFreeRateResponse,
     ErrorResponse
@@ -152,11 +153,7 @@ async def run_analysis_and_callback(
             callback_response = AnalysisCallbackResponse(
                 job_id=job_id,
                 success=True,
-                min_variance=result.min_variance,
-                max_sharpe=result.max_sharpe,
-                metrics=result.metrics,
-                benchmark_comparison=result.benchmark_comparison,
-                metadata=AnalysisMetadata(
+                metadata=AnalysisCallbackMetadata(
                     risk_free_rate_used=result.risk_free_rate_used,
                     period=result.analysis_period,
                     notes=result.notes,
@@ -164,8 +161,9 @@ async def run_analysis_and_callback(
                     portfolio_id=request.portfolio_id,
                     timestamp=datetime.utcnow()
                 ),
-                error=None,
-                execution_time=execution_time
+                benchmark=result.benchmark,
+                portfolios=result.portfolios,
+                stock_details=result.stock_details,
             )
             
             await send_analysis_callback(request.callback_url, callback_response)
@@ -191,11 +189,7 @@ async def run_analysis_and_callback(
             callback_response = AnalysisCallbackResponse(
                 job_id=job_id,
                 success=False,
-                min_variance=None,
-                max_sharpe=None,
-                metrics=None,
-                benchmark_comparison=None,
-                metadata=AnalysisMetadata(
+                metadata=AnalysisCallbackMetadata(
                     risk_free_rate_used=None,
                     period=None,
                     notes=None,
@@ -203,12 +197,9 @@ async def run_analysis_and_callback(
                     portfolio_id=request.portfolio_id,
                     timestamp=datetime.utcnow()
                 ),
-                error=ErrorResponse(
-                    error="Analysis failed",
-                    detail=str(e),
-                    timestamp=datetime.utcnow()
-                ),
-                execution_time=execution_time
+                benchmark=None,
+                portfolios=[],
+                stock_details=None,
             )
             
             await send_analysis_callback(request.callback_url, callback_response)
