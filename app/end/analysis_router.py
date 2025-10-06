@@ -113,38 +113,7 @@ async def start_analysis_async(
         )
 
 
-@router.post(
-    "/run",
-    response_model=PortfolioAnalysisResponse,
-    summary="동기 포트폴리오 분석 실행",
-    description="포트폴리오 분석을 즉시 실행하고 결과를 반환합니다. 이동 윈도우 기반 MPT 최적화 및 백테스팅 분석을 수행합니다."
-)
-async def run_analysis_sync(
-    request: AnalysisRequest,
-    session: AsyncSession = Depends(get_async_session),
-    analysis_service: AnalysisService = Depends(get_analysis_service),
-) -> PortfolioAnalysisResponse:
-    """동기 포트폴리오 분석 실행
-    
-    기본 분석과 고급 분석을 모두 포함하여 포트폴리오 성과를 종합적으로 분석합니다.
-    
-    제공 기능:
-    - 이동 윈도우 기반 포트폴리오 최적화 (최소 변동성, 최대 샤프)
-    - 백테스팅 기반 검증된 성과 지표 (기대수익률, 변동성, 샤프 비율 등)
-    - 고급 리스크 지표 (베타, 알파, 트래킹 에러, 소르티노 비율 등)
-    - 벤치마크 비교 분석 (선택적)
-    """
-    try:
-        if not request.holdings:
-            raise HTTPException(status_code=400, detail="At least one holding must be specified")
-
-        result = await analysis_service.run_analysis(request, session)
-        return result
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to run analysis", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
+ 
 
 
 async def run_analysis_and_callback(
@@ -187,12 +156,16 @@ async def run_analysis_and_callback(
                 max_sharpe=result.max_sharpe,
                 metrics=result.metrics,
                 benchmark_comparison=result.benchmark_comparison,
-                risk_free_rate_used=result.risk_free_rate_used,
-                analysis_period=result.analysis_period,
-                notes=result.notes,
+                metadata=AnalysisMetadata(
+                    risk_free_rate_used=result.risk_free_rate_used,
+                    period=result.analysis_period,
+                    notes=result.notes,
+                    execution_time=execution_time,
+                    portfolio_id=request.portfolio_id,
+                    timestamp=datetime.utcnow()
+                ),
                 error=None,
-                execution_time=execution_time,
-                portfolio_id=request.portfolio_id
+                execution_time=execution_time
             )
             
             await send_analysis_callback(request.callback_url, callback_response)
@@ -222,16 +195,20 @@ async def run_analysis_and_callback(
                 max_sharpe=None,
                 metrics=None,
                 benchmark_comparison=None,
-                risk_free_rate_used=None,
-                analysis_period=None,
-                notes=None,
+                metadata=AnalysisMetadata(
+                    risk_free_rate_used=None,
+                    period=None,
+                    notes=None,
+                    execution_time=execution_time,
+                    portfolio_id=request.portfolio_id,
+                    timestamp=datetime.utcnow()
+                ),
                 error=ErrorResponse(
                     error="Analysis failed",
                     detail=str(e),
                     timestamp=datetime.utcnow()
                 ),
-                execution_time=execution_time,
-                portfolio_id=request.portfolio_id
+                execution_time=execution_time
             )
             
             await send_analysis_callback(request.callback_url, callback_response)

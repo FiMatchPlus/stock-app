@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.schemas import (
     AnalysisRequest,
-    EnhancedAnalysisResponse,
+    PortfolioAnalysisResponse,
     AnalysisJobResponse,
     AnalysisCallbackResponse,
     PortfolioWeights,
@@ -46,7 +46,7 @@ class AnalysisService:
         self,
         request: AnalysisRequest,
         session: AsyncSession,
-    ) -> EnhancedAnalysisResponse:
+    ) -> PortfolioAnalysisResponse:
         """이동 윈도우 기반 포트폴리오 분석 실행
 
         3년 윈도우 크기로 1개월 간격으로 이동하며 최적화를 수행하고,
@@ -55,11 +55,6 @@ class AnalysisService:
         
         # 이동 윈도우 서비스로 분석 위임
         result = await self.moving_window_service.run_analysis(request, session)
-        
-        # execution_time 추가
-        result.execution_time = None  # 동기 실행에서는 측정하지 않음
-        result.timestamp = datetime.utcnow()
-        
         return result
 
 

@@ -70,14 +70,20 @@ class MovingWindowAnalysisService:
         # 전체 기간의 포트폴리오 가격 데이터 로드
         prices_df = await self._load_daily_prices(session, request, analysis_start, analysis_end)
         if prices_df.empty:
-            return EnhancedAnalysisResponse(
-                success=False,
-                min_variance=PortfolioWeights(weights={}),
-                max_sharpe=PortfolioWeights(weights={}),
-                metrics={},
+            metadata = AnalysisMetadata(
                 risk_free_rate_used=0.0,
-                analysis_period={"start": analysis_start, "end": analysis_end},
-                notes="No price data available for requested holdings."
+                period={"start": analysis_start, "end": analysis_end},
+                notes="No price data available for requested holdings.",
+                execution_time=None,
+                portfolio_id=request.portfolio_id,
+                timestamp=None,
+            )
+            return PortfolioAnalysisResponse(
+                success=False,
+                metadata=metadata,
+                benchmark=None,
+                portfolios=[],
+                stock_details=None,
             )
 
         # 벤치마크 및 무위험수익률 조회
