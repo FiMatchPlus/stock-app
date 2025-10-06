@@ -23,7 +23,7 @@ from app.models.schemas import (
     AnalysisJobResponse,
     AnalysisCallbackResponse,
     PortfolioWeights,
-    EnhancedAnalysisMetrics,
+    AnalysisMetrics,
     BenchmarkComparison,
 )
 from app.models.stock import StockPrice

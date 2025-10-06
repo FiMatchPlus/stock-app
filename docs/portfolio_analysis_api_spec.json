@@ -350,11 +350,11 @@
             "description": "백테스팅 기반 평균 성능 지표",
             "properties": {
               "min_variance": {
-                "$ref": "#/components/schemas/EnhancedAnalysisMetrics",
+                "$ref": "#/components/schemas/AnalysisMetrics",
                 "description": "최소 분산 포트폴리오의 백테스팅 성능 지표"
               },
               "max_sharpe": {
-                "$ref": "#/components/schemas/EnhancedAnalysisMetrics",
+                "$ref": "#/components/schemas/AnalysisMetrics",
                 "description": "최대 샤프 포트폴리오의 백테스팅 성능 지표"
               }
             }
@@ -461,10 +461,10 @@
             "description": "백테스팅 기반 평균 성능 지표 (성공 시)",
             "properties": {
               "min_variance": {
-                "$ref": "#/components/schemas/EnhancedAnalysisMetrics"
+                "$ref": "#/components/schemas/AnalysisMetrics"
               },
               "max_sharpe": {
-                "$ref": "#/components/schemas/EnhancedAnalysisMetrics"
+                "$ref": "#/components/schemas/AnalysisMetrics"
               }
             }
           },
@@ -537,7 +537,7 @@
           }
         }
       },
-      "EnhancedAnalysisMetrics": {
+      "AnalysisMetrics": {
         "type": "object",
         "description": "향상된 포트폴리오 성과 지표 (백테스팅 기반 평균)",
         "required": [

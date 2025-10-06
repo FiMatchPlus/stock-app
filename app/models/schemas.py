@@ -11,6 +11,9 @@ KST = timezone(timedelta(hours=9))
 def get_kst_now():
     return datetime.now(KST)
 
+# Backward compatibility alias for previous schema imports
+PortfolioWeights = Dict[str, float]
+
 
 class StockCreate(BaseModel):
     """종목 생성 스키마"""
@@ -388,12 +391,72 @@ class BetaAnalysis(BaseModel):
     alpha: float = Field(..., description="알파 (초과 수익률)")
 
 
+# ------------------------------
+# Enhanced Analysis Schemas (moved up to avoid forward refs)
+# ------------------------------
+
+class AnalysisMetrics(BaseModel):
+    """포트폴리오 성과 지표"""
+    # 기본 지표
+    expected_return: float = Field(..., description="기대수익률 (연환산)")
+    std_deviation: float = Field(..., description="표준편차 (연환산)")
+    
+    # 벤치마크 대비 지표
+    jensen_alpha: float = Field(..., description="젠센 알파")
+    tracking_error: float = Field(..., description="트래킹 에러")
+    
+    # 위험조정 수익률 지표
+    sharpe_ratio: float = Field(..., description="샤프 비율")
+    treynor_ratio: float = Field(..., description="트레이너 비율")
+    sortino_ratio: float = Field(..., description="소르티노 비율")
+    calmar_ratio: float = Field(..., description="칼마 비율")
+    information_ratio: float = Field(..., description="정보비율")
+    
+    # 리스크 지표
+    max_drawdown: float = Field(..., description="최대 낙폭")
+    downside_deviation: float = Field(..., description="하방편차")
+    upside_beta: float = Field(..., description="상승 베타")
+    downside_beta: float = Field(..., description="하락 베타")
+    
+    # VaR/CVaR 지표
+    var_value: float = Field(..., description="VaR 95% (Value at Risk)")
+    cvar_value: float = Field(..., description="CVaR 95% (Conditional Value at Risk)")
+    
+    # 벤치마크 상관관계
+    correlation_with_benchmark: float = Field(..., description="벤치마크와의 상관관계")
+
+
+class StockDetails(BaseModel):
+    """종목별 상세 정보 (포트폴리오 분석 결과)"""
+    expected_return: float = Field(..., description="기대수익률")
+    volatility: float = Field(..., description="변동성")
+    correlation_to_portfolio: float = Field(..., description="포트폴리오와의 상관관계")
+    
+    # 베타 관련 지표 (새로 추가)
+    beta_analysis: Optional[BetaAnalysis] = Field(None, description="베타 분석 정보")
+
+
+class BenchmarkComparison(BaseModel):
+    """벤치마크 비교 결과"""
+    benchmark_code: str = Field(..., description="벤치마크 지수 코드")
+    benchmark_return: float = Field(..., description="벤치마크 수익률 (연환산)")
+    benchmark_volatility: float = Field(..., description="벤치마크 변동성")
+    
+    # 초과 성과
+    excess_return: float = Field(..., description="초과 수익률")
+    relative_volatility: float = Field(..., description="상대 변동성")
+    
+    # 성과 기여도 분석
+    security_selection: float = Field(..., description="종목선택 효과")
+    timing_effect: float = Field(..., description="타이밍 효과")
+
+
 class PortfolioData(BaseModel):
     """포트폴리오 데이터"""
     type: str = Field(..., description="포트폴리오 타입 (user, min_variance, max_sharpe)")
     weights: Dict[str, float] = Field(..., description="종목코드별 비중 (합계 1.0)")
     beta_analysis: Optional[BetaAnalysis] = Field(None, description="포트폴리오 베타 분석 정보")
-    metrics: Optional[EnhancedAnalysisMetrics] = Field(None, description="성과 지표")
+    metrics: Optional[AnalysisMetrics] = Field(None, description="성과 지표")
     benchmark_comparison: Optional[BenchmarkComparison] = Field(None, description="벤치마크 비교 결과")
 
 
@@ -468,61 +531,6 @@ class RiskFreeRateResponse(BaseModel):
 # Enhanced Analysis Schemas
 # ------------------------------
 
-class EnhancedAnalysisMetrics(BaseModel):
-    """향상된 포트폴리오 성과 지표"""
-    # 기본 지표
-    expected_return: float = Field(..., description="기대수익률 (연환산)")
-    std_deviation: float = Field(..., description="표준편차 (연환산)")
-    
-    # 벤치마크 대비 지표
-    jensen_alpha: float = Field(..., description="젠센 알파")
-    tracking_error: float = Field(..., description="트래킹 에러")
-    
-    # 위험조정 수익률 지표
-    sharpe_ratio: float = Field(..., description="샤프 비율")
-    treynor_ratio: float = Field(..., description="트레이너 비율")
-    sortino_ratio: float = Field(..., description="소르티노 비율")
-    calmar_ratio: float = Field(..., description="칼마 비율")
-    information_ratio: float = Field(..., description="정보비율")
-    
-    # 리스크 지표
-    max_drawdown: float = Field(..., description="최대 낙폭")
-    downside_deviation: float = Field(..., description="하방편차")
-    upside_beta: float = Field(..., description="상승 베타")
-    downside_beta: float = Field(..., description="하락 베타")
-    
-    # VaR/CVaR 지표
-    var_value: float = Field(..., description="VaR 95% (Value at Risk)")
-    cvar_value: float = Field(..., description="CVaR 95% (Conditional Value at Risk)")
-    
-    # 벤치마크 상관관계
-    correlation_with_benchmark: float = Field(..., description="벤치마크와의 상관관계")
-
-
-class StockDetails(BaseModel):
-    """종목별 상세 정보 (포트폴리오 분석 결과)"""
-    expected_return: float = Field(..., description="기대수익률")
-    volatility: float = Field(..., description="변동성")
-    correlation_to_portfolio: float = Field(..., description="포트폴리오와의 상관관계")
-    
-    # 베타 관련 지표 (새로 추가)
-    beta_analysis: Optional[BetaAnalysis] = Field(None, description="베타 분석 정보")
-
-
-class BenchmarkComparison(BaseModel):
-    """벤치마크 비교 결과"""
-    benchmark_code: str = Field(..., description="벤치마크 지수 코드")
-    benchmark_return: float = Field(..., description="벤치마크 수익률 (연환산)")
-    benchmark_volatility: float = Field(..., description="벤치마크 변동성")
-    
-    # 초과 성과
-    excess_return: float = Field(..., description="초과 수익률")
-    relative_volatility: float = Field(..., description="상대 변동성")
-    
-    # 성과 기여도 분석
-    security_selection: float = Field(..., description="종목선택 효과")
-    timing_effect: float = Field(..., description="타이밍 효과")
-
 
 class AnalysisJobResponse(BaseModel):
     """비동기 포트폴리오 분석 작업 시작 응답"""
@@ -536,9 +544,9 @@ class AnalysisCallbackResponse(BaseModel):
     job_id: str = Field(..., description="작업 ID")
     # 성공 시: EnhancedAnalysisResponse와 동일한 필드들
     success: Optional[bool] = Field(None, description="성공 여부")
-    min_variance: Optional[PortfolioWeights] = Field(None, description="최소분산 포트폴리오 비중")
-    max_sharpe: Optional[PortfolioWeights] = Field(None, description="최대 샤프 포트폴리오 비중")
-    metrics: Optional[Dict[str, EnhancedAnalysisMetrics]] = Field(None, description="향상된 성과 지표")
+    min_variance: Optional[Dict[str, float]] = Field(None, description="최소분산 포트폴리오 비중")
+    max_sharpe: Optional[Dict[str, float]] = Field(None, description="최대 샤프 포트폴리오 비중")
+    metrics: Optional[Dict[str, AnalysisMetrics]] = Field(None, description="향상된 성과 지표")
     benchmark_comparison: Optional[BenchmarkComparison] = Field(None, description="벤치마크 비교 결과")
     risk_free_rate_used: Optional[float] = Field(None, description="사용된 무위험수익률")
     analysis_period: Optional[Dict[str, datetime]] = Field(None, description="분석 기간")
@@ -554,9 +562,9 @@ class AnalysisCallbackResponse(BaseModel):
 class EnhancedAnalysisResponse(BaseModel):
     """향상된 포트폴리오 분석 응답"""
     success: bool = Field(True, description="성공 여부")
-    min_variance: PortfolioWeights = Field(..., description="최소분산 포트폴리오 비중")
-    max_sharpe: PortfolioWeights = Field(..., description="최대 샤프 포트폴리오 비중")
-    metrics: Dict[str, EnhancedAnalysisMetrics] = Field(..., description="향상된 성과 지표")
+    min_variance: Dict[str, float] = Field(..., description="최소분산 포트폴리오 비중")
+    max_sharpe: Dict[str, float] = Field(..., description="최대 샤프 포트폴리오 비중")
+    metrics: Dict[str, AnalysisMetrics] = Field(..., description="향상된 성과 지표")
     benchmark_comparison: Optional[BenchmarkComparison] = Field(None, description="벤치마크 비교 결과")
     stock_details: Optional[Dict[str, StockDetails]] = Field(None, description="종목별 상세 정보 (베타 포함)")
     portfolio_beta_analysis: Optional[BetaAnalysis] = Field(None, description="사용자 입력 포트폴리오 베타 분석 정보")
