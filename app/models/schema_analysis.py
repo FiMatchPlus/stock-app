@@ -97,7 +97,7 @@ class BenchmarkInfo(BaseModel):
 
 
 class PortfolioAnalysisResponse(BaseModel):
-    """새로운 포트폴리오 분석 응답"""
+    """포트폴리오 분석 내부 DTO"""
     success: bool = Field(True, description="성공 여부")
     metadata: AnalysisMetadata = Field(..., description="분석 메타데이터")
     benchmark: Optional[BenchmarkInfo] = Field(None, description="벤치마크 정보")
@@ -126,13 +126,10 @@ class AnalysisCallbackResponse(BaseModel):
     """포트폴리오 분석 완료 콜백 응답 스키마"""
     job_id: str = Field(..., description="작업 ID")
     success: Optional[bool] = Field(None, description="성공 여부")
-    min_variance: Optional[Dict[str, float]] = Field(None, description="최소분산 포트폴리오 비중")
-    max_sharpe: Optional[Dict[str, float]] = Field(None, description="최대 샤프 포트폴리오 비중")
-    metrics: Optional[Dict[str, AnalysisMetrics]] = Field(None, description="향상된 성과 지표")
-    benchmark_comparison: Optional[BenchmarkComparison] = Field(None, description="벤치마크 비교 결과")
-    benchmark_info: Optional[BenchmarkInfo] = Field(None, description="벤치마크 정보")
     metadata: AnalysisCallbackMetadata = Field(..., description="분석 메타데이터")
-    error: Optional[ErrorResponse] = Field(None, description="오류 상세 정보")
+    benchmark: Optional[BenchmarkInfo] = Field(None, description="벤치마크 정보")
+    portfolios: List[PortfolioData] = Field(default_factory=list, description="포트폴리오 데이터 목록")
+    stock_details: Optional[Dict[str, StockDetails]] = Field(None, description="종목별 상세 정보")
 
 
  
