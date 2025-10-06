@@ -411,7 +411,7 @@ class AnalysisMetadata(BaseModel):
 class BenchmarkInfo(BaseModel):
     """벤치마크 정보"""
     code: str = Field(..., description="벤치마크 지수 코드")
-    return: float = Field(..., description="벤치마크 수익률 (연환산)")
+    benchmark_return: float = Field(..., alias="return", description="벤치마크 수익률 (연환산)")
     volatility: float = Field(..., description="벤치마크 변동성")
 
 
