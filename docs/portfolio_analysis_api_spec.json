@@ -45,7 +45,7 @@
                 "benchmark": "KOSPI",
                 "risk_free_rate": 0.035,
                 "callback_url": "https://your-server.com/analysis/callback",
-                "analysis_id": 12345
+                "portfolio_id": 987
               }
             }
           }
@@ -259,7 +259,9 @@
       "AnalysisRequest": {
         "type": "object",
         "required": [
-          "holdings"
+          "holdings",
+          "callback_url",
+          "portfolio_id"
         ],
         "properties": {
           "holdings": {
@@ -294,11 +296,12 @@
             "description": "결과를 받을 콜백 URL (비동기 처리 시 필수)",
             "example": "https://your-server.com/analysis/callback"
           },
-          "analysis_id": {
+          "portfolio_id": {
             "type": "integer",
-            "description": "클라이언트에서 제공하는 분석 ID (콜백 시 그대로 반환)",
-            "example": 12345
-          }
+            "description": "클라이언트에서 제공하는 포트폴리오 ID (콜백 시 그대로 반환)",
+            "example": 987
+          },
+          
         }
       },
       "AnalysisHoldingInput": {
@@ -504,9 +507,9 @@
             "type": "number",
             "description": "실행 시간 (초)"
           },
-          "analysis_id": {
+          "portfolio_id": {
             "type": "integer",
-            "description": "클라이언트에서 제공한 분석 ID"
+            "description": "클라이언트에서 제공한 포트폴리오 ID"
           },
           "timestamp": {
             "type": "string",

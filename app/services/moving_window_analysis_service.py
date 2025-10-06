@@ -143,7 +143,6 @@ class MovingWindowAnalysisService:
             period={"start": analysis_start, "end": analysis_end},
             notes=f"Analysis based on {benchmark_code} benchmark and 3-year rolling window optimization.",
             execution_time=None,  # 실행시간은 상위에서 설정
-            analysis_id=request.analysis_id,
             portfolio_id=request.portfolio_id,
             timestamp=None  # 타임스탬프는 상위에서 설정
         )
@@ -166,7 +165,7 @@ class MovingWindowAnalysisService:
         """선택 종목들의 일별 종가를 날짜 x 종목 형태의 표로 만듭니다."""
         from sqlalchemy import select, and_, asc
 
-        symbols = [h.stock_code for h in request.holdings]
+        symbols = [h.code for h in request.holdings]
         if not symbols:
             return pd.DataFrame()
 

@@ -168,7 +168,8 @@ async def run_analysis_and_callback(
                 holdings=request.holdings,
                 lookback_years=request.lookback_years,
                 benchmark=request.benchmark,
-                risk_free_rate=request.risk_free_rate
+                risk_free_rate=request.risk_free_rate,
+                portfolio_id=request.portfolio_id
             )
             
             result = await analysis_service.run_analysis(
@@ -191,7 +192,7 @@ async def run_analysis_and_callback(
                 notes=result.notes,
                 error=None,
                 execution_time=execution_time,
-                analysis_id=request.analysis_id
+                portfolio_id=request.portfolio_id
             )
             
             await send_analysis_callback(request.callback_url, callback_response)
@@ -230,7 +231,7 @@ async def run_analysis_and_callback(
                     timestamp=datetime.utcnow()
                 ),
                 execution_time=execution_time,
-                analysis_id=request.analysis_id
+                portfolio_id=request.portfolio_id
             )
             
             await send_analysis_callback(request.callback_url, callback_response)
