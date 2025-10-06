@@ -1,6 +1,7 @@
 """포트폴리오 분석 API 라우터 (도메인 분리)"""
 
 import time
+import json
 import uuid
 import httpx
 from typing import Optional, List, Dict
@@ -211,9 +212,17 @@ async def send_analysis_callback(callback_url: str, response: AnalysisCallbackRe
             if not response.success:
                 headers["X-Analysis-Error-Type"] = "ANALYSIS_ERROR"
                 
+            # 콜백 직전 실제 JSON 페이로드 로깅
+            payload = response.model_dump(mode='json')
+            logger.info(
+                "Prepared analysis callback JSON payload",
+                job_id=response.job_id,
+                payload=json.dumps(payload, ensure_ascii=False, default=str)
+            )
+
             callback_result = await client.post(
                 callback_url,
-                json=response.model_dump(mode='json'),
+                json=payload,
                 headers=headers
             )
             
