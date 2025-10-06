@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Optional, List, Dict
 from datetime import datetime
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, ConfigDict
 from app.models.schema_common import ErrorResponse, get_kst_now
 
 
@@ -91,6 +91,7 @@ class AnalysisMetadata(BaseModel):
 
 class BenchmarkInfo(BaseModel):
     """벤치마크 정보"""
+    model_config = ConfigDict(populate_by_name=True)
     code: str = Field(..., description="벤치마크 지수 코드")
     benchmark_return: float = Field(..., alias="return", description="벤치마크 수익률 (연환산)")
     volatility: float = Field(..., description="벤치마크 변동성")
@@ -149,5 +150,4 @@ __all__ = [
     "AnalysisCallbackMetadata",
     "AnalysisCallbackResponse",
 ]
-
 
