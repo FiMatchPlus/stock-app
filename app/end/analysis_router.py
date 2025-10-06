@@ -145,9 +145,9 @@ async def run_analysis_and_callback(
                 job_id=job_id,
                 success=True,
                 metadata=AnalysisCallbackMetadata(
-                    risk_free_rate_used=result.risk_free_rate_used,
-                    period=result.analysis_period,
-                    notes=result.notes,
+                    risk_free_rate_used=result.metadata.risk_free_rate_used if result.metadata else None,
+                    period=result.metadata.period if result.metadata else None,
+                    notes=result.metadata.notes if result.metadata else None,
                     execution_time=execution_time,
                     portfolio_id=request.portfolio_id,
                     timestamp=datetime.utcnow()
