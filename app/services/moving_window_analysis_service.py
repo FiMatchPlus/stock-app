@@ -126,10 +126,17 @@ class MovingWindowAnalysisService:
         # 최종 응답 구성
         latest_weights = optimization_results['latest_weights']
         
-        # 각 포트폴리오별 완전한 데이터 구성
+        # 각 포트폴리오별 데이터 구성
         portfolios = await self._build_portfolio_data(
-            request, optimization_results, benchmark_returns, 
-            analysis_start, analysis_end, backtest_metrics
+            request,
+            optimization_results,
+            benchmark_returns,
+            analysis_start,
+            analysis_end,
+            backtest_metrics,
+            prices_df,
+            risk_free_rate,
+            benchmark_code,
         )
         
         # 벤치마크 정보 구성
@@ -613,9 +620,12 @@ class MovingWindowAnalysisService:
         """하방편차 계산"""
         try:
             downside_returns = returns[returns < target_return / 252.0]
-            if len(downside_returns) == 0:
+            n = len(downside_returns)
+            if n == 0:
                 return 0.0
-            downside_deviation = downside_returns.std() * np.sqrt(252)
+            if n == 1:
+                return 0.0
+            downside_deviation = downside_returns.std(ddof=0) * np.sqrt(252)
             return float(downside_deviation)
         except Exception as e:
             logger.error(f"Error calculating downside deviation: {str(e)}")
@@ -1090,7 +1100,10 @@ class MovingWindowAnalysisService:
         benchmark_returns: pd.Series,
         analysis_start: datetime,
         analysis_end: datetime,
-        backtest_metrics: Dict[str, AnalysisMetrics]
+        backtest_metrics: Dict[str, AnalysisMetrics],
+        prices_df: pd.DataFrame,
+        risk_free_rate: float,
+        benchmark_code: Optional[str],
     ) -> List[PortfolioData]:
         """포트폴리오 데이터 구성"""
         portfolios = []
@@ -1102,10 +1115,20 @@ class MovingWindowAnalysisService:
             request, benchmark_returns, analysis_start, analysis_end
         )
         user_metrics = await self._calculate_user_portfolio_metrics(
-            request, benchmark_returns, analysis_start, analysis_end
+            request,
+            benchmark_returns,
+            analysis_start,
+            analysis_end,
+            prices_df,
+            risk_free_rate,
         )
         user_benchmark_comparison = await self._calculate_user_benchmark_comparison(
-            request, benchmark_returns, analysis_start, analysis_end
+            request,
+            benchmark_returns,
+            analysis_start,
+            analysis_end,
+            prices_df,
+            benchmark_code,
         )
         
         portfolios.append(PortfolioData(
@@ -1160,24 +1183,92 @@ class MovingWindowAnalysisService:
         request: AnalysisRequest,
         benchmark_returns: pd.Series,
         analysis_start: datetime,
-        analysis_end: datetime
+        analysis_end: datetime,
+        prices_df: pd.DataFrame,
+        risk_free_rate: float,
     ) -> Optional[AnalysisMetrics]:
         """사용자 포트폴리오 성과 지표 계산"""
-        # 간소화된 구현 - 실제로는 가격 데이터를 로드해서 계산해야 함
-        logger.info("User portfolio metrics calculation requested")
-        return None
+        try:
+            if prices_df is None or prices_df.empty:
+                return None
+            symbols = [h.code for h in request.holdings]
+            available = [s for s in symbols if s in prices_df.columns]
+            if not available:
+                return None
+            total_qty = sum(h.quantity for h in request.holdings if h.code in available)
+            if total_qty <= 0:
+                return None
+            weights = {h.code: h.quantity / total_qty for h in request.holdings if h.code in available}
+            returns_df = prices_df[available].pct_change().dropna()
+            if returns_df.empty:
+                return None
+            user_returns = returns_df.dot(pd.Series(weights))
+            if not benchmark_returns.empty:
+                common_idx = user_returns.index.intersection(benchmark_returns.index)
+                bench_aligned = benchmark_returns.loc[common_idx]
+                port_aligned = user_returns.loc[common_idx]
+            else:
+                bench_aligned = pd.Series(dtype=float)
+                port_aligned = user_returns
+            return self._calculate_portfolio_metrics(
+                port_aligned, bench_aligned, risk_free_rate, "User", None
+            )
+        except Exception as e:
+            logger.error(f"Error calculating user portfolio metrics: {str(e)}")
+            return None
 
     async def _calculate_user_benchmark_comparison(
         self,
         request: AnalysisRequest,
         benchmark_returns: pd.Series,
         analysis_start: datetime,
-        analysis_end: datetime
+        analysis_end: datetime,
+        prices_df: pd.DataFrame,
+        benchmark_code: Optional[str],
     ) -> Optional[BenchmarkComparison]:
         """사용자 포트폴리오 벤치마크 비교"""
-        # 간소화된 구현 - 실제로는 가격 데이터를 로드해서 계산해야 함
-        logger.info("User portfolio benchmark comparison requested")
-        return None
+        try:
+            if prices_df is None or prices_df.empty or benchmark_returns.empty:
+                return None
+            symbols = [h.code for h in request.holdings]
+            available = [s for s in symbols if s in prices_df.columns]
+            if not available:
+                return None
+            total_qty = sum(h.quantity for h in request.holdings if h.code in available)
+            if total_qty <= 0:
+                return None
+            weights = {h.code: h.quantity / total_qty for h in request.holdings if h.code in available}
+            returns_df = prices_df[available].pct_change().dropna()
+            if returns_df.empty:
+                return None
+            user_returns = returns_df.dot(pd.Series(weights))
+            common_idx = user_returns.index.intersection(benchmark_returns.index)
+            if len(common_idx) == 0:
+                return None
+            port_aligned = user_returns.loc[common_idx]
+            bench_aligned = benchmark_returns.loc[common_idx]
+            benchmark_annual_return = bench_aligned.mean() * 252.0
+            benchmark_volatility = bench_aligned.std() * np.sqrt(252)
+            portfolio_annual_return = port_aligned.mean() * 252.0
+            portfolio_volatility = port_aligned.std() * np.sqrt(252)
+            excess_return = portfolio_annual_return - benchmark_annual_return
+            relative_volatility = (
+                portfolio_volatility / benchmark_volatility if benchmark_volatility > 0 else 1.0
+            )
+            security_selection = excess_return * 0.7
+            timing_effect = excess_return * 0.3
+            return BenchmarkComparison(
+                benchmark_code=benchmark_code or "KOSPI",
+                benchmark_return=float(benchmark_annual_return),
+                benchmark_volatility=float(benchmark_volatility),
+                excess_return=float(excess_return),
+                relative_volatility=float(relative_volatility),
+                security_selection=float(security_selection),
+                timing_effect=float(timing_effect),
+            )
+        except Exception as e:
+            logger.error(f"Error calculating user benchmark comparison: {str(e)}")
+            return None
 
     async def _calculate_portfolio_benchmark_comparison(
         self,
