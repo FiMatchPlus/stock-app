@@ -369,19 +369,18 @@ class BacktestResponse(BaseModel):
 
 class AnalysisHoldingInput(BaseModel):
     """분석 입력 보유 종목 스키마"""
-    stock_code: str = Field(..., description="종목코드")
+    code: str = Field(..., description="종목코드")
     quantity: int = Field(..., ge=1, description="보유 수량 (주)")
 
 
 class AnalysisRequest(BaseModel):
     """포트폴리오 분석 요청 스키마 (MPT/CAPM)"""
     holdings: List[AnalysisHoldingInput] = Field(..., min_items=1, description="보유 종목 목록")
+    callback_url: str = Field(..., description="결과를 받을 콜백 URL (비동기 처리 시 필수)")
+    portfolio_id: int = Field(..., description="포트폴리오 ID (콜백 시 그대로 반환)")
     lookback_years: int = Field(3, ge=1, le=10, description="과거 데이터 조회 연수 (3~5 추천)")
     benchmark: Optional[str] = Field(None, description="벤치마크 지수 코드 (예: KOSPI, KOSDAQ). 미제공 시 내부 추정")
-    risk_free_rate: Optional[float] = Field(None, description="연간 무위험 수익률 (소수). 미제공 시 0 가정")
-    callback_url: Optional[str] = Field(None, description="결과를 받을 콜백 URL (비동기 처리 시 필수)")
-    analysis_id: Optional[int] = Field(None, description="클라이언트에서 제공하는 분석 ID (콜백 시 그대로 반환)")
-    portfolio_id: Optional[int] = Field(None, description="포트폴리오 ID (콜백 시 그대로 반환)")
+    risk_free_rate: Optional[float] = Field(None, description="연간 무위험 수익률 (소수). 내부 계산")
 
 
 class BetaAnalysis(BaseModel):
@@ -466,7 +465,6 @@ class AnalysisMetadata(BaseModel):
     period: Dict[str, datetime] = Field(..., description="분석 기간")
     notes: Optional[str] = Field(None, description="참고 사항")
     execution_time: Optional[float] = Field(None, description="실행 시간 (초)")
-    analysis_id: Optional[int] = Field(None, description="클라이언트에서 제공한 분석 ID")
     portfolio_id: Optional[int] = Field(None, description="클라이언트에서 제공한 포트폴리오 ID")
     timestamp: Optional[datetime] = Field(default_factory=get_kst_now, description="응답 생성 시각")
 
@@ -555,7 +553,7 @@ class AnalysisCallbackResponse(BaseModel):
     error: Optional[ErrorResponse] = Field(None, description="오류 상세 정보")
     # 공통 필드
     execution_time: float = Field(..., description="실행 시간 (초)")
-    analysis_id: Optional[int] = Field(None, description="클라이언트에서 제공한 분석 ID")
+    portfolio_id: Optional[int] = Field(None, description="클라이언트에서 제공한 포트폴리오 ID")
     timestamp: datetime = Field(default_factory=get_kst_now, description="완료 시각")
 
 
@@ -572,6 +570,5 @@ class EnhancedAnalysisResponse(BaseModel):
     analysis_period: Dict[str, datetime] = Field(..., description="분석 기간")
     notes: Optional[str] = Field(None, description="참고 사항")
     execution_time: Optional[float] = Field(None, description="실행 시간 (초)")
-    analysis_id: Optional[int] = Field(None, description="클라이언트에서 제공한 분석 ID")
     portfolio_id: Optional[int] = Field(None, description="클라이언트에서 제공한 포트폴리오 ID")
     timestamp: Optional[datetime] = Field(default_factory=get_kst_now, description="응답 생성 시각")

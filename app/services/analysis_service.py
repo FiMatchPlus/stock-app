@@ -56,9 +56,8 @@ class AnalysisService:
         # 이동 윈도우 서비스로 분석 위임
         result = await self.moving_window_service.run_analysis(request, session)
         
-        # execution_time과 analysis_id 추가
+        # execution_time 추가
         result.execution_time = None  # 동기 실행에서는 측정하지 않음
-        result.analysis_id = request.analysis_id
         result.timestamp = datetime.utcnow()
         
         return result
