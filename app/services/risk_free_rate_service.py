@@ -69,16 +69,16 @@ class RiskFreeRateService:
             end: 분석 종료일
             
         Returns:
-            str: 국고채 타입 (Treasury1Y, Treasury3Y, Treasury5Y)
+            str: 국고채 타입 (TB1Y, TB3Y, TB5Y)
         """
         analysis_days = (end - start).days
         
         if analysis_days < 365:  # 1년 미만
-            return "Treasury1Y"
+            return "TB1Y"
         elif analysis_days < 1095:  # 3년 미만
-            return "Treasury3Y"
+            return "TB3Y"
         else:  # 3년 이상
-            return "Treasury5Y"
+            return "TB5Y"
     
     async def _get_treasury_daily_returns(
         self,
