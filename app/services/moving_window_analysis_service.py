@@ -101,6 +101,22 @@ class MovingWindowAnalysisService:
         # 벤치마크와 시계열 동기화
         if not benchmark_returns.empty:
             prices_df, benchmark_returns = self._synchronize_time_series(prices_df, benchmark_returns)
+            
+        # 겹치는 기간 로깅
+        if not prices_df.empty:
+            logger.info(
+                "Portfolio price data time range",
+                start_date=prices_df.index.min().isoformat() if len(prices_df) > 0 else None,
+                end_date=prices_df.index.max().isoformat() if len(prices_df) > 0 else None,
+                total_days=len(prices_df)
+            )
+        if not benchmark_returns.empty:
+            logger.info(
+                "Benchmark returns data time range",
+                start_date=benchmark_returns.index.min().isoformat() if len(benchmark_returns) > 0 else None,
+                end_date=benchmark_returns.index.max().isoformat() if len(benchmark_returns) > 0 else None,
+                total_days=len(benchmark_returns)
+            )
 
         # 이동 윈도우 최적화 수행
         optimization_results = await self._perform_rolling_optimization(
