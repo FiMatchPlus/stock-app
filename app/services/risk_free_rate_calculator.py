@@ -1,4 +1,4 @@
-"""무위험수익률 계산 서비스"""
+"""무위험수익률 계산기"""
 
 from typing import Optional
 from datetime import datetime, timedelta
@@ -11,8 +11,8 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class RiskFreeRateService:
-    """무위험수익률 계산 서비스"""
+class RiskFreeRateCalculator:
+    """무위험수익률 계산기"""
     
     def __init__(self, session: AsyncSession):
         self.session = session

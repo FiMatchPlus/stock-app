@@ -27,21 +27,21 @@ from app.models.schemas import (
 )
 from app.repositories.benchmark_repository import BenchmarkRepository
 from app.repositories.risk_free_rate_repository import RiskFreeRateRepository
-from app.services.risk_free_rate_service import RiskFreeRateService
+from app.services.risk_free_rate_calculator import RiskFreeRateCalculator
 from app.utils.logger import get_logger
-from app.services.analysis.optimization_mixin import OptimizationMixin
-from app.services.analysis.metrics_mixin import MetricsMixin
-from app.services.analysis.data_mixin import DataMixin
-from app.services.analysis.benchmark_mixin import BenchmarkMixin
-from app.services.analysis.beta_mixin import BetaMixin
-from app.services.analysis.compose_mixin import ComposeMixin
+from app.services.analysis.optimization_service import OptimizationService
+from app.services.analysis.metrics_service import MetricsService
+from app.services.analysis.data_service import DataService
+from app.services.analysis.benchmark_service import BenchmarkService
+from app.services.analysis.beta_service import BetaService
+from app.services.analysis.compose_service import ComposeService
 
 
 logger = get_logger(__name__)
 
 
-class AnalysisService(OptimizationMixin, MetricsMixin, DataMixin, BenchmarkMixin, BetaMixin, ComposeMixin):
-    """MPT/CAPM 기반 포트폴리오 분석 서비스 - 이동 윈도우 방식 (믹스인 직접 상속)"""
+class AnalysisService(OptimizationService, MetricsService, DataService, BenchmarkService, BetaService, ComposeService):
+    """MPT/CAPM 기반 포트폴리오 분석 서비스 - 이동 윈도우 방식"""
 
     def __init__(self):
         self.window_years = 3  # 윈도우 크기: 3년
@@ -88,8 +88,8 @@ class AnalysisService(OptimizationMixin, MetricsMixin, DataMixin, BenchmarkMixin
         )
 
         # 무위험수익률 계산
-        risk_free_service = RiskFreeRateService(session)
-        risk_free_rate = await risk_free_service.calculate_risk_free_rate(
+        risk_free_calculator = RiskFreeRateCalculator(session)
+        risk_free_rate = await risk_free_calculator.calculate_risk_free_rate(
             analysis_start, analysis_end, request.risk_free_rate
         )
 

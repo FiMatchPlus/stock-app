@@ -4,7 +4,7 @@ from typing import List, Optional, Dict, Any
 import pandas as pd
 
 
-class ComposeMixin:
+class ComposeService:
     async def _build_portfolio_data(
         self,
         request,

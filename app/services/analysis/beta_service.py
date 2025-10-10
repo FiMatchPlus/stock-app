@@ -4,7 +4,7 @@ from typing import Optional, Dict, Any, Tuple, List
 import pandas as pd
 
 
-class BetaMixin:
+class BetaService:
     async def _calculate_stock_details(
         self,
         optimization_results: Dict[str, Any],

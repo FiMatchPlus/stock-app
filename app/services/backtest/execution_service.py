@@ -6,7 +6,7 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.schemas import BacktestRequest
-from app.services.trading_rules_service import TradingRulesService
+from app.services.backtest.trading_rules_service import TradingRulesService
 from app.exceptions import MissingStockPriceDataException
 from app.utils.logger import get_logger
 

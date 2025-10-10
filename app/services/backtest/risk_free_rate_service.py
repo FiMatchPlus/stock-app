@@ -5,7 +5,7 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.schemas import BacktestRequest
-from app.services.risk_free_rate_service import RiskFreeRateService
+from app.services.risk_free_rate_calculator import RiskFreeRateCalculator
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -21,11 +21,11 @@ class BacktestRiskFreeRateService:
     ) -> Tuple[Optional[pd.Series], Optional[Dict[str, Any]]]:
         """무위험 수익률 조회 - 트랜잭션 에러 시 독립 세션으로 재시도"""
         try:
-            # RiskFreeRateService를 사용해 무위험수익률 계산
-            risk_free_rate_service = RiskFreeRateService(session)
+            # RiskFreeRateCalculator를 사용해 무위험수익률 계산
+            risk_free_calculator = RiskFreeRateCalculator(session)
             
             # 무위험수익률 계산 (연환산 값)
-            annual_risk_free_rate = await risk_free_rate_service.calculate_risk_free_rate(
+            annual_risk_free_rate = await risk_free_calculator.calculate_risk_free_rate(
                 analysis_start=request.start,
                 analysis_end=request.end,
                 user_risk_free_rate=request.risk_free_rate
