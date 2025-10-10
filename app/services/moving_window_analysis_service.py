@@ -34,155 +34,20 @@ from app.repositories.benchmark_repository import BenchmarkRepository
 from app.repositories.risk_free_rate_repository import RiskFreeRateRepository
 from app.services.risk_free_rate_service import RiskFreeRateService
 from app.utils.logger import get_logger
+from app.services.analysis.optimization_mixin import OptimizationMixin
+from app.services.analysis.metrics_mixin import MetricsMixin
+from app.services.analysis.data_mixin import DataMixin
+from app.services.analysis.benchmark_mixin import BenchmarkMixin
+from app.services.analysis.beta_mixin import BetaMixin
+from app.services.analysis.compose_mixin import ComposeMixin
 
 
 logger = get_logger(__name__)
 
 
-class MovingWindowAnalysisService:
-    """이동 윈도우 기반 MPT 포트폴리오 분석 서비스"""
-
-    def __init__(self):
-        self.window_years = 3  # 윈도우 크기: 3년
-        self.step_months = 1   # 이동 간격: 1개월
-
-    async def run_analysis(
-        self,
-        request: AnalysisRequest,
-        session: AsyncSession,
-    ) -> PortfolioAnalysisResponse:
-        """이동 윈도우 기반 포트폴리오 분석 실행
-
-        1. 전체 데이터 기간에서 3년 윈도우로 1개월씩 이동하며 최적화 수행
-        2. 각 시점의 최적 비중을 저장
-        3. 백테스팅을 통해 전체 기간의 성능 지표 계산
-        4. 최종 응답은 최근 비중 + 백테스팅 평균 지표
-        """
-        
-        # 전체 분석 기간 설정 (최소 5년 권장)
-        analysis_end = datetime.utcnow()
-        analysis_start = analysis_end - timedelta(days=252 * max(request.lookback_years, 5))
-        
-        # Repository 초기화
-        benchmark_repo = BenchmarkRepository(session)
-        risk_free_repo = RiskFreeRateRepository(session)
-
-        # 전체 기간의 포트폴리오 가격 데이터 로드
-        prices_df = await self._load_daily_prices(session, request, analysis_start, analysis_end)
-        if prices_df.empty:
-            metadata = AnalysisMetadata(
-                risk_free_rate_used=0.0,
-                period={"start": analysis_start, "end": analysis_end},
-                notes="No price data available for requested holdings.",
-                execution_time=None,
-                portfolio_id=request.portfolio_id,
-                timestamp=None,
-            )
-            return PortfolioAnalysisResponse(
-                success=False,
-                metadata=metadata,
-                benchmark=None,
-                portfolios=[],
-                stock_details=None,
-            )
-
-        # 벤치마크 및 무위험수익률 조회
-        benchmark_code = await self._determine_benchmark(request, benchmark_repo)
-        benchmark_returns = await benchmark_repo.get_benchmark_returns_series(
-            benchmark_code, analysis_start, analysis_end
-        )
-        
-        # 새로운 무위험수익률 계산 서비스 사용
-        risk_free_service = RiskFreeRateService(session)
-        risk_free_rate = await risk_free_service.calculate_risk_free_rate(
-            analysis_start, analysis_end, request.risk_free_rate
-        )
-
-        # 벤치마크와 시계열 동기화
-        if not benchmark_returns.empty:
-            prices_df, benchmark_returns = self._synchronize_time_series(prices_df, benchmark_returns)
-            
-        # 겹치는 기간 로깅
-        if not prices_df.empty:
-            logger.info(
-                "Portfolio price data time range",
-                start_date=prices_df.index.min().isoformat() if len(prices_df) > 0 else None,
-                end_date=prices_df.index.max().isoformat() if len(prices_df) > 0 else None,
-                total_days=len(prices_df)
-            )
-        if not benchmark_returns.empty:
-            logger.info(
-                "Benchmark returns data time range",
-                start_date=benchmark_returns.index.min().isoformat() if len(benchmark_returns) > 0 else None,
-                end_date=benchmark_returns.index.max().isoformat() if len(benchmark_returns) > 0 else None,
-                total_days=len(benchmark_returns)
-            )
-
-        # 이동 윈도우 최적화 수행
-        optimization_results = await self._perform_rolling_optimization(
-            prices_df, benchmark_returns, risk_free_rate
-        )
-
-        # 백테스팅 기반 성능 지표 계산
-        backtest_metrics = await self._calculate_backtest_metrics(
-            optimization_results, benchmark_returns, risk_free_rate
-        )
-
-        # 벤치마크 비교 분석
-        benchmark_comparison = await self._calculate_benchmark_comparison(
-            optimization_results, benchmark_returns, benchmark_code
-        ) if benchmark_code and not benchmark_returns.empty else None
-
-        # 개별 종목 베타 계산 (새로 추가)
-        stock_details = await self._calculate_stock_details(
-            optimization_results, benchmark_code, benchmark_returns, session, prices_df
-        )
-
-
-        # 최종 응답 구성
-        latest_weights = optimization_results['latest_weights']
-        
-        # 각 포트폴리오별 데이터 구성
-        portfolios = await self._build_portfolio_data(
-            request,
-            optimization_results,
-            benchmark_returns,
-            analysis_start,
-            analysis_end,
-            backtest_metrics,
-            prices_df,
-            risk_free_rate,
-            benchmark_code,
-        )
-        
-        # 벤치마크 정보 구성
-        benchmark_info = None
-        if not benchmark_returns.empty:
-            benchmark_annual_return = benchmark_returns.mean() * 252.0
-            benchmark_volatility = benchmark_returns.std() * np.sqrt(252)
-            benchmark_info = BenchmarkInfo(
-                code=benchmark_code,
-                benchmark_return=float(benchmark_annual_return),
-                volatility=float(benchmark_volatility)
-            )
-        
-        # 메타데이터 구성
-        metadata = AnalysisMetadata(
-            risk_free_rate_used=risk_free_rate,
-            period={"start": analysis_start, "end": analysis_end},
-            notes=f"Analysis based on {benchmark_code} benchmark and 3-year rolling window optimization.",
-            execution_time=None,  # 실행시간은 상위에서 설정
-            portfolio_id=request.portfolio_id,
-            timestamp=None  # 타임스탬프는 상위에서 설정
-        )
-        
-        return PortfolioAnalysisResponse(
-            success=True,
-            metadata=metadata,
-            benchmark=benchmark_info,
-            portfolios=portfolios,
-            stock_details=stock_details
-        )
+class MovingWindowAnalysisService(OptimizationMixin, MetricsMixin, DataMixin, BenchmarkMixin, BetaMixin, ComposeMixin):
+    """Deprecated: Use AnalysisService instead."""
+    pass
 
     async def _load_daily_prices(
         self,
@@ -336,9 +201,9 @@ class MovingWindowAnalysisService:
         def objective(weights):
             return np.dot(weights, np.dot(cov_matrix.values, weights))
         
-        # 제약 조건: 비중의 합 = 1, 비중 >= 0
+        # 제약 조건: 비중의 합 = 1, 0 <= 비중 <= 0.9 (단일 종목 90% 초과 금지)
         constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
-        bounds = tuple((0, 1) for _ in range(n_assets))
+        bounds = tuple((0, 0.9) for _ in range(n_assets))
         
         # 초기값 (균등 비중)
         x0 = np.ones(n_assets) / n_assets
@@ -367,9 +232,9 @@ class MovingWindowAnalysisService:
             sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_std
             return -sharpe_ratio  # 음수를 취해서 최소화
         
-        # 제약 조건: 비중의 합 = 1, 비중 >= 0
+        # 제약 조건: 비중의 합 = 1, 0 <= 비중 <= 0.9 (단일 종목 90% 초과 금지)
         constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
-        bounds = tuple((0, 1) for _ in range(n_assets))
+        bounds = tuple((0, 0.9) for _ in range(n_assets))
         
         # 초기값 (균등 비중)
         x0 = np.ones(n_assets) / n_assets
