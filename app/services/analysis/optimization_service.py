@@ -11,7 +11,7 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class OptimizationMixin:
+class OptimizationService:
     async def _perform_rolling_optimization(
         self,
         prices_df: pd.DataFrame,

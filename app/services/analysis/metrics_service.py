@@ -10,7 +10,7 @@ from app.utils.logger import get_logger
 logger = get_logger(__name__)
 
 
-class MetricsMixin:
+class MetricsService:
     async def _calculate_backtest_metrics(
         self,
         optimization_results: Dict[str, Any],

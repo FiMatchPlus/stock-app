@@ -5,7 +5,7 @@ import pandas as pd
 from sqlalchemy.ext.asyncio import AsyncSession
 
 
-class DataMixin:
+class DataService:
     async def _load_daily_prices(
         self,
         session: AsyncSession,

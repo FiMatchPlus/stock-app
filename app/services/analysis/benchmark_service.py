@@ -4,7 +4,7 @@ from typing import Optional
 import pandas as pd
 
 
-class BenchmarkMixin:
+class BenchmarkService:
     async def _determine_benchmark(self, request, benchmark_repo) -> str:
         return await super()._determine_benchmark(request, benchmark_repo)
 

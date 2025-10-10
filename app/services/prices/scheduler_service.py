@@ -14,7 +14,7 @@ from sqlalchemy import select
 
 from app.models.database import AsyncSessionLocal
 from app.models.stock import Stock, StockPrice
-from app.services.naver_crawling_service import naver_crawling_service
+from app.services.prices.naver_crawling_service import naver_crawling_service
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)

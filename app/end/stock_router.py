@@ -13,8 +13,8 @@ from app.models.schemas import (
     StockResponse,
     ErrorResponse
 )
-from app.services.stock_service import StockService
-from app.services.stock_price_service import StockPriceService
+from app.services.prices.stock_service import StockService
+from app.services.prices.stock_price_service import StockPriceService
 from app.utils.logger import get_logger, log_api_request
 
 logger = get_logger(__name__)

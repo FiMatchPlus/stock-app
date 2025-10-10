@@ -193,7 +193,7 @@ class StockPriceService:
     ) -> Dict[str, List[StockPriceResponse]]:
         """주가 데이터 수집"""
         try:
-            from app.services.external_api_service import ExternalAPIService
+            from app.services.prices.external_api_service import ExternalAPIService
             
             api_service = ExternalAPIService()
             
