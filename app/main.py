@@ -11,7 +11,7 @@ import time
 from app.config import settings
 from app.end import stock_router, backtest_router, analysis_router
 from app.services.parallel_processing_service import ParallelProcessingService
-from app.services.scheduler_service import scheduler_service
+from app.services.prices.scheduler_service import scheduler_service
 from app.utils.redis_client import close_redis_client
 from app.utils.mongodb_client import mongodb_client, MONGODB_URL, MONGODB_DATABASE
 from app.utils.logger import get_logger, log_api_request

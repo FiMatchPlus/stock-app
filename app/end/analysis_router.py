@@ -21,7 +21,7 @@ from app.models.schemas import (
     ErrorResponse
 )
 from app.services.analysis_service import AnalysisService
-from app.services.data_collection_service import DataCollectionService
+from app.services.prices.data_collection_service import DataCollectionService
 from app.repositories.benchmark_repository import BenchmarkRepository
 from app.repositories.risk_free_rate_repository import RiskFreeRateRepository
 from app.utils.logger import get_logger
