@@ -29,6 +29,7 @@ from app.repositories.benchmark_repository import BenchmarkRepository
 from app.repositories.risk_free_rate_repository import RiskFreeRateRepository
 from app.services.risk_free_rate_calculator import RiskFreeRateCalculator
 from app.utils.logger import get_logger
+import numpy as np
 from app.services.analysis.optimization_service import OptimizationService
 from app.services.analysis.metrics_service import MetricsService
 from app.services.analysis.data_service import DataService

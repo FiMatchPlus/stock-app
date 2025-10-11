@@ -149,7 +149,7 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
             # 기존 시리즈를 날짜 인덱스로 리인덱싱
             complete_series = rate_series.reindex(target_dates)
             
-            # 전진 채우기로 누락 데이터 보간 (금리는 보통 변화가 느림)
+            # 전진 채우기로 누락 데이터 보간
             complete_series = complete_series.fillna(method='ffill')
             
             # 시작 부분에 여전히 NaN이 있으면 후진 채우기
