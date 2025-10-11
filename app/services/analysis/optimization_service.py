@@ -18,18 +18,223 @@ class OptimizationService:
         benchmark_returns: pd.Series,
         risk_free_rate: float,
     ) -> Dict[str, Any]:
-        return await super()._perform_rolling_optimization(prices_df, benchmark_returns, risk_free_rate)
+        """이동 윈도우 기반 포트폴리오 최적화 수행"""
+        
+        logger.info("Starting rolling window optimization")
+        
+        # 윈도우 크기 (3년 = 약 756 거래일)
+        window_days = 252 * self.window_years
+        
+        # 이동 간격 (1개월 = 약 21 거래일)
+        step_days = 21
+        
+        # 전체 데이터 길이 확인
+        total_days = len(prices_df)
+        if total_days < window_days + step_days:
+            raise ValueError(f"Insufficient data: need at least {window_days + step_days} days, got {total_days}")
+        
+        # 최적화 결과 저장
+        optimization_results = {
+            'dates': [],
+            'min_variance_weights': [],
+            'max_sharpe_weights': [],
+            'portfolio_returns': [],
+            'window_var_cvar': [],  # 윈도우별 VaR/CVaR 저장
+            'expected_returns': [],
+            'covariances': []
+        }
+        
+        # 이동 윈도우로 최적화 수행
+        for start_idx in range(0, total_days - window_days, step_days):
+            end_idx = start_idx + window_days
+            
+            # 윈도우 데이터 추출
+            window_prices = prices_df.iloc[start_idx:end_idx]
+            window_date = window_prices.index[-1]  # 윈도우의 마지막 날짜
+            
+            logger.debug(f"Optimizing window: {window_prices.index[0]} to {window_prices.index[-1]}")
+            
+            # 수익률 계산
+            window_returns = window_prices.pct_change().fillna(0.0)
+            
+            # 통계 계산
+            expected_returns = window_returns.mean() * 252.0
+            cov_matrix = window_returns.cov() * 252.0
+            
+            # Semi-covariance matrix 계산 (하방위험용)
+            semi_cov_matrix = self._calculate_semi_covariance(window_returns, target_return=0.0)
+            
+            # 포트폴리오 최적화
+            min_var_weights = self._optimize_min_variance(semi_cov_matrix)
+            max_sharpe_weights = self._optimize_max_sharpe(expected_returns, cov_matrix, risk_free_rate)
+            
+            # 다음 기간의 실제 수익률 계산 (백테스팅용)
+            if end_idx < total_days - 1:
+                next_period_prices = prices_df.iloc[end_idx:end_idx + step_days]
+                next_period_returns = next_period_prices.pct_change().fillna(0.0)
+                
+                # 최적화된 비중으로 포트폴리오 수익률 계산 (일별)
+                mv_portfolio_returns = next_period_returns.dot(min_var_weights)
+                ms_portfolio_returns = next_period_returns.dot(max_sharpe_weights)
+                
+                # 윈도우별 VaR/CVaR 계산
+                mv_var, mv_cvar = self._calculate_var_cvar(mv_portfolio_returns)
+                ms_var, ms_cvar = self._calculate_var_cvar(ms_portfolio_returns)
+                
+                # 다음 기간의 평균 수익률
+                mv_portfolio_return = float(mv_portfolio_returns.mean())
+                ms_portfolio_return = float(ms_portfolio_returns.mean())
+            else:
+                mv_portfolio_return = 0.0
+                ms_portfolio_return = 0.0
+                mv_var = mv_cvar = ms_var = ms_cvar = 0.0
+            
+            # 결과 저장
+            optimization_results['dates'].append(window_date)
+            optimization_results['min_variance_weights'].append(min_var_weights.to_dict())
+            optimization_results['max_sharpe_weights'].append(max_sharpe_weights.to_dict())
+            optimization_results['portfolio_returns'].append({
+                'min_variance': mv_portfolio_return,
+                'max_sharpe': ms_portfolio_return
+            })
+            optimization_results['window_var_cvar'].append({
+                'min_variance': {'var': mv_var, 'cvar': mv_cvar},
+                'max_sharpe': {'var': ms_var, 'cvar': ms_cvar}
+            })
+            optimization_results['expected_returns'].append(expected_returns.to_dict())
+            optimization_results['covariances'].append(cov_matrix.to_dict())
+        
+        # 최신 비중 저장 (마지막 윈도우의 비중)
+        optimization_results['latest_weights'] = {
+            'min_variance': optimization_results['min_variance_weights'][-1],
+            'max_sharpe': optimization_results['max_sharpe_weights'][-1]
+        }
+        
+        logger.info(f"Completed rolling optimization: {len(optimization_results['dates'])} windows processed")
+        return optimization_results
+
+    def _calculate_semi_covariance(self, returns: pd.DataFrame, target_return: float = 0.0) -> pd.DataFrame:
+        """Semi-covariance matrix 계산 (하방위험만 고려)
+        
+        Args:
+            returns: 수익률 데이터프레임 (일별 수익률)
+            target_return: 목표 수익률 (일별 기준, 기본값 0)
+        
+        Returns:
+            Semi-covariance matrix (연환산)
+        """
+        # 목표 수익률 이하의 수익률만 필터링
+        downside_returns = returns.copy()
+        
+        # 각 컬럼(종목)별로 목표 수익률 이상인 값은 0으로 설정
+        for col in downside_returns.columns:
+            downside_returns.loc[downside_returns[col] >= target_return, col] = 0.0
+        
+        # Semi-covariance 계산
+        # 평균 대신 목표 수익률을 사용
+        n = len(downside_returns)
+        if n <= 1:
+            # 데이터가 부족하면 일반 공분산 반환
+            return returns.cov() * 252.0
+        
+        # 중심화 (목표 수익률 기준)
+        centered = downside_returns - target_return
+        
+        # Semi-covariance matrix 계산
+        semi_cov = centered.T.dot(centered) / n
+        
+        # 연환산
+        semi_cov_annual = semi_cov * 252.0
+        
+        # 대각 성분이 0에 가까운 경우 처리 (최소값 설정)
+        min_variance = 1e-8
+        for col in semi_cov_annual.columns:
+            if semi_cov_annual.loc[col, col] < min_variance:
+                semi_cov_annual.loc[col, col] = min_variance
+        
+        logger.debug(f"Semi-covariance matrix calculated (target_return={target_return})")
+        
+        return semi_cov_annual
 
     def _optimize_min_variance(self, cov_matrix: pd.DataFrame) -> pd.Series:
-        return super()._optimize_min_variance(cov_matrix)
+        """최소 하방위험 포트폴리오 최적화 (Semi-covariance 기반)
+        
+        하방표준편차(Downside Deviation)를 최소화하는 포트폴리오 비중 계산
+        목표 수익률(0) 이하의 수익률만 고려하여 위험 측정
+        """
+        n_assets = len(cov_matrix)
+        
+        # 목적 함수: 포트폴리오 하방위험(semi-variance) 최소화
+        # w^T * Σ_semi * w (Semi-covariance matrix 사용)
+        def objective(weights):
+            return np.dot(weights, np.dot(cov_matrix.values, weights))
+        
+        # 제약 조건: 비중의 합 = 1, 비중 >= 0
+        constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
+        bounds = tuple((0, 1) for _ in range(n_assets))
+        
+        # 초기값 (균등 비중)
+        x0 = np.ones(n_assets) / n_assets
+        
+        try:
+            result = minimize(objective, x0, method='SLSQP', bounds=bounds, constraints=constraints)
+            if result.success:
+                weights = pd.Series(result.x, index=cov_matrix.columns)
+                return weights / weights.sum()  # 정규화
+            else:
+                logger.warning("Min downside risk optimization failed, using inverse semi-variance weights")
+                return self._fallback_min_variance_weights(cov_matrix)
+        except Exception as e:
+            logger.error(f"Min downside risk optimization error: {e}")
+            return self._fallback_min_variance_weights(cov_matrix)
 
     def _optimize_max_sharpe(self, expected_returns: pd.Series, cov_matrix: pd.DataFrame, risk_free_rate: float) -> pd.Series:
-        return super()._optimize_max_sharpe(expected_returns, cov_matrix, risk_free_rate)
+        """최대 샤프 비율 포트폴리오 최적화"""
+        n_assets = len(expected_returns)
+        
+        # 목적 함수: 샤프 비율 최대화 (음의 샤프 비율 최소화)
+        def objective(weights):
+            portfolio_return = np.dot(weights, expected_returns.values)
+            portfolio_variance = np.dot(weights, np.dot(cov_matrix.values, weights))
+            portfolio_std = np.sqrt(max(portfolio_variance, 1e-8))
+            sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_std
+            return -sharpe_ratio  # 음수를 취해서 최소화
+        
+        # 제약 조건: 비중의 합 = 1, 비중 >= 0
+        constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
+        bounds = tuple((0, 1) for _ in range(n_assets))
+        
+        # 초기값 (균등 비중)
+        x0 = np.ones(n_assets) / n_assets
+        
+        try:
+            result = minimize(objective, x0, method='SLSQP', bounds=bounds, constraints=constraints)
+            if result.success:
+                weights = pd.Series(result.x, index=expected_returns.index)
+                return weights / weights.sum()  # 정규화
+            else:
+                logger.warning("Max sharpe optimization failed, using expected return weighted weights")
+                return self._fallback_max_sharpe_weights(expected_returns, cov_matrix, risk_free_rate)
+        except Exception as e:
+            logger.error(f"Max sharpe optimization error: {e}")
+            return self._fallback_max_sharpe_weights(expected_returns, cov_matrix, risk_free_rate)
 
     def _fallback_min_variance_weights(self, cov_matrix: pd.DataFrame) -> pd.Series:
-        return super()._fallback_min_variance_weights(cov_matrix)
+        """최소 하방위험 최적화 실패 시 대체 방법 (inverse semi-variance)"""
+        diag_var = np.diag(cov_matrix.values)
+        inv_var = np.where(diag_var > 0, 1.0 / diag_var, 0.0)
+        w = inv_var / inv_var.sum() if inv_var.sum() > 0 else np.ones_like(inv_var) / len(inv_var)
+        return pd.Series(w, index=cov_matrix.columns)
 
     def _fallback_max_sharpe_weights(self, expected_returns: pd.Series, cov_matrix: pd.DataFrame, risk_free_rate: float) -> pd.Series:
-        return super()._fallback_max_sharpe_weights(expected_returns, cov_matrix, risk_free_rate)
+        """최대 샤프 최적화 실패 시 대체 방법"""
+        diag_var = np.diag(cov_matrix.values)
+        excess = (expected_returns.values - risk_free_rate)
+        score = np.where(diag_var > 0, excess / diag_var, 0.0)
+        score = np.maximum(score, 0.0)
+        if score.sum() == 0:
+            score = np.ones_like(score)
+        w = score / score.sum()
+        return pd.Series(w, index=expected_returns.index)
 
 
