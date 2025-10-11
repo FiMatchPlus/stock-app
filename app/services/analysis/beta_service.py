@@ -88,16 +88,10 @@ class BetaService:
                                     stock_returns_aligned.values
                                 )
                                 
-                                # 분석 기간 계산
-                                start_date = common_dates.min()
-                                end_date = common_dates.max()
-                                
                                 beta_analysis = BetaAnalysis(
                                     beta=float(slope),
                                     r_square=float(r_value ** 2),
-                                    alpha=float(intercept) * 252,  # 연환산
-                                    start=start_date.isoformat(),
-                                    end=end_date.isoformat()
+                                    alpha=float(intercept) * 252  # 연환산
                                 )
                                 
                                 logger.debug(f"Calculated beta analysis for {stock_code}: beta={slope:.4f}, r²={r_value**2:.4f}")
@@ -177,9 +171,7 @@ class BetaService:
             portfolio_beta_analysis = BetaAnalysis(
                 beta=float(slope),
                 r_square=float(r_value ** 2),
-                alpha=float(intercept) * 252,  # 연환산
-                start=analysis_start.isoformat(),
-                end=analysis_end.isoformat()
+                alpha=float(intercept) * 252  # 연환산
             )
             
             logger.info(f"Calculated portfolio beta analysis: beta={slope:.4f}, r²={r_value**2:.4f}, alpha={intercept*252:.4f}")
