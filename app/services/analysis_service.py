@@ -45,8 +45,9 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
     """MPT/CAPM 기반 포트폴리오 분석 서비스 - 이동 윈도우 방식"""
 
     def __init__(self):
-        self.window_years = 3  # 윈도우 크기: 3년
-        self.step_months = 1   # 이동 간격: 1개월
+        self.window_years = 1      # 학습 윈도우 크기: 1년 (252 거래일)
+        self.step_months = 0.5     # 윈도우 이동 간격: 2주 (10.5 거래일)
+        self.backtest_months = 3   # 백테스팅 기간: 3개월 (63 거래일) - VaR/CVaR 계산용
 
     async def run_analysis(
         self,
@@ -167,7 +168,7 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
 
         base_notes = (
             f"benchmark={benchmark_code or 'N/A'}, "
-            f"window_years={self.window_years}, step_months={self.step_months}, windows={total_windows}, "
+            f"window_years={self.window_years}, step_months={self.step_months}, backtest_months={self.backtest_months}, windows={total_windows}, "
             f"prices_range=[{prices_start}..{prices_end}], benchmark_range=[{bench_start}..{bench_end}]"
         )
         cap_notes = f", weight_cap_applied=0.9, capped_assets={capped_assets}" if capped_assets else ""

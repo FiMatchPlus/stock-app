@@ -43,18 +43,18 @@ class RiskFreeRateCalculator:
             rate_type = self._select_treasury_bond_type(analysis_start, analysis_end)
             logger.info(f"Selected treasury bond type: {rate_type} for analysis period: {(analysis_end - analysis_start).days} days")
             
-            # 3. 해당 기간의 국고채 수익률 조회 및 평균 계산
-            daily_returns = await self._get_treasury_daily_returns(rate_type, analysis_start, analysis_end)
+            # 3. 해당 기간의 국고채 수익률 조회
+            annual_rates = await self._get_treasury_daily_returns(rate_type, analysis_start, analysis_end)
             
-            if not daily_returns:
+            if not annual_rates:
                 logger.warning(f"No treasury data available for {rate_type}, using default 0.0")
                 return 0.0
             
-            # 4. 일별 수익률의 평균을 연환산으로 변환
-            average_daily_return = sum(daily_returns) / len(daily_returns)
-            annualized_rate = average_daily_return * 252  # 252 거래일 기준
+            # 4. 평균 연율(%)을 계산하고 소수로 변환
+            average_rate_pct = sum(annual_rates) / len(annual_rates)  # 예: 3.26 (%)
+            annualized_rate = average_rate_pct / 100  # 예: 0.0326 (3.26%)
             
-            logger.info(f"Calculated risk-free rate: {annualized_rate:.4f} (from {len(daily_returns)} daily returns)")
+            logger.info(f"Calculated risk-free rate: {annualized_rate:.4f} ({average_rate_pct:.2f}% from {len(annual_rates)} data points)")
             return annualized_rate
             
         except Exception as e:
@@ -86,15 +86,15 @@ class RiskFreeRateCalculator:
         start: datetime,
         end: datetime
     ) -> list[float]:
-        """특정 기간의 국고채 일별 수익률 조회
+        """특정 기간의 국고채 연율 데이터 조회
         
         Args:
-            rate_type: 국고채 타입
+            rate_type: 국고채 타입 (TB1Y, TB3Y, TB5Y)
             start: 시작일
             end: 종료일
             
         Returns:
-            list[float]: 일별 수익률 리스트
+            list[float]: 연율(%) 리스트 (예: [3.26, 3.28, 3.25, ...])
         """
         try:
             stmt = (
