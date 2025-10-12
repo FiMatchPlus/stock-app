@@ -72,7 +72,7 @@ class BenchmarkComparison(BaseModel):
 
 class PortfolioData(BaseModel):
     """포트폴리오 데이터"""
-    type: str = Field(..., description="포트폴리오 타입 (user, min_variance, max_sortino)")
+    type: str = Field(..., description="포트폴리오 타입 (user, min_downside_risk, max_sortino)")
     weights: Dict[str, float] = Field(..., description="종목코드별 비중 (합계 1.0)")
     beta_analysis: Optional[BetaAnalysis] = Field(None, description="포트폴리오 베타 분석 정보")
     metrics: Optional[AnalysisMetrics] = Field(None, description="성과 지표")

@@ -27,7 +27,7 @@ class BenchmarkService:
         Args:
             optimization_results: 최적화 결과
             benchmark_return: 벤치마크 연환산 수익률
-            portfolio_type: 'max_sortino' 또는 'min_variance'
+            portfolio_type: 'max_sortino' 또는 'min_downside_risk'
             
         Returns:
             (security_selection, timing_effect) 튜플
@@ -103,7 +103,7 @@ class BenchmarkService:
                 return None
             
             # 백테스팅 기간의 포트폴리오 수익률
-            mv_returns = [r['min_variance'] for r in optimization_results['portfolio_returns']]
+            mv_returns = [r['min_downside_risk'] for r in optimization_results['portfolio_returns']]
             ms_returns = [r['max_sortino'] for r in optimization_results['portfolio_returns']]
             
             # 최대 소르티노 포트폴리오를 기준으로 비교 분석

@@ -146,16 +146,34 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
                 volatility=float(benchmark_volatility)
             )
 
-        # 캡 바인딩 감지 (최신 윈도우 기준)
-        capped_assets = []
+        # 제약조건 위반 감지 (최신 윈도우 기준)
+        capped_assets = []  # 상한에 걸린 종목
+        floored_assets = []  # 하한에 걸린 종목
         cap_threshold = 0.9
+        floor_threshold = 0.05  # 최소 비중 5%
+        
         if 'latest_weights' in optimization_results:
             latest_ms = optimization_results['latest_weights'].get('max_sortino', {})
-            latest_mv = optimization_results['latest_weights'].get('min_variance', {})
-            for name, w in {**latest_ms, **latest_mv}.items():
+            latest_mv = optimization_results['latest_weights'].get('min_downside_risk', {})
+            
+            # 모든 종목 체크 (중복 제거)
+            all_weights = {}
+            for name, w in latest_ms.items():
+                all_weights[('max_sortino', name)] = w
+            for name, w in latest_mv.items():
+                all_weights[('min_downside_risk', name)] = w
+            
+            for (portfolio_type, name), w in all_weights.items():
                 try:
+                    # 상한 체크 (90% 이상)
                     if w >= cap_threshold - 1e-9:
-                        capped_assets.append(name)
+                        if name not in capped_assets:
+                            capped_assets.append(name)
+                    
+                    # 하한 체크 (5% ± 0.1%)
+                    if abs(w - floor_threshold) < 1e-3:
+                        if name not in floored_assets:
+                            floored_assets.append(name)
                 except Exception:
                     continue
 
@@ -171,8 +189,17 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
             f"window_years={self.window_years}, step_months={self.step_months}, backtest_months={self.backtest_months}, windows={total_windows}, "
             f"prices_range=[{prices_start}..{prices_end}], benchmark_range=[{bench_start}..{bench_end}]"
         )
+        
+        # 제약조건 정보 추가
+        constraint_notes = f", weight_constraints=[min=5%, max=90%]"
+        
+        # 상한/하한 위반 경고 추가
         cap_notes = f", weight_cap_applied=0.9, capped_assets={capped_assets}" if capped_assets else ""
-        notes = base_notes + cap_notes
+        floor_notes = ""
+        if floored_assets:
+            floor_notes = f", weight_floor_applied=0.05, floored_assets={floored_assets}, WARNING: 일부 종목이 최소 비중 5%에 도달했습니다. 종목 조합을 다시 고려하세요."
+        
+        notes = base_notes + constraint_notes + cap_notes + floor_notes
 
         metadata = AnalysisMetadata(
             risk_free_rate_used=risk_free_rate,
