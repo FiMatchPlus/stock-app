@@ -114,7 +114,12 @@ class OptimizationService:
             'max_sortino': optimization_results['max_sortino_weights'][-1]
         }
         
-        logger.info(f"Completed rolling optimization: {len(optimization_results['dates'])} windows processed")
+        # DEBUG: 최신 비중 로깅
+        logger.info(
+            f"Completed rolling optimization: {len(optimization_results['dates'])} windows processed",
+            latest_min_downside_risk_weights=optimization_results['latest_weights']['min_downside_risk'],
+            latest_max_sortino_weights=optimization_results['latest_weights']['max_sortino']
+        )
         return optimization_results
 
     def _calculate_semi_covariance(self, returns: pd.DataFrame, target_return: float = 0.0) -> pd.DataFrame:

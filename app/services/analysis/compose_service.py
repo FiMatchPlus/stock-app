@@ -28,8 +28,15 @@ class ComposeService:
         portfolios = []
         latest_weights = optimization_results['latest_weights']
         
+        # DEBUG: 실제 전송될 weights 로깅
+        logger.info(
+            "Portfolio weights being prepared for callback",
+            min_downside_risk_weights=latest_weights.get('min_downside_risk', {}),
+            max_sortino_weights=latest_weights.get('max_sortino', {})
+        )
+        
         # 1. 사용자 포트폴리오
-        user_weights = self._calculate_user_weights(request)
+        user_weights = self._calculate_user_weights(request, prices_df)
         user_beta = await self._calculate_user_portfolio_beta(
             request, benchmark_returns, analysis_start, analysis_end
         )
@@ -92,10 +99,54 @@ class ComposeService:
         
         return portfolios
 
-    def _calculate_user_weights(self, request) -> Dict[str, float]:
-        """사용자 포트폴리오 비중 계산"""
-        total_value = sum(h.quantity for h in request.holdings)
-        return {h.code: h.quantity / total_value for h in request.holdings}
+    def _calculate_user_weights(self, request, prices_df: pd.DataFrame) -> Dict[str, float]:
+        """사용자 포트폴리오 비중 계산 (평가액 기반)
+        
+        Args:
+            request: 분석 요청 (holdings 포함)
+            prices_df: 가격 데이터프레임
+            
+        Returns:
+            종목코드별 비중 딕셔너리 (평가액 기준)
+        """
+        if prices_df is None or prices_df.empty:
+            # 가격 데이터가 없으면 수량 기반으로 폴백
+            logger.warning("No price data available for user weights calculation, using quantity-based weights")
+            total_qty = sum(h.quantity for h in request.holdings)
+            return {h.code: h.quantity / total_qty for h in request.holdings} if total_qty > 0 else {}
+        
+        # 최신 가격 사용 (마지막 거래일)
+        latest_prices = prices_df.iloc[-1]
+        
+        # 각 종목의 평가액 계산
+        holdings_value = {}
+        total_value = 0.0
+        
+        for h in request.holdings:
+            if h.code in latest_prices:
+                price = latest_prices[h.code]
+                value = h.quantity * price
+                holdings_value[h.code] = value
+                total_value += value
+            else:
+                logger.warning(f"No price data for stock {h.code}, excluding from weight calculation")
+        
+        # 비중 계산
+        if total_value <= 0:
+            logger.warning("Total portfolio value is zero or negative")
+            return {}
+        
+        weights = {code: value / total_value for code, value in holdings_value.items()}
+        
+        # DEBUG: 사용자 비중 계산 로깅
+        logger.info(
+            "User portfolio weights calculated",
+            holdings_value=holdings_value,
+            total_value=total_value,
+            weights=weights
+        )
+        
+        return weights
 
     async def _calculate_user_portfolio_metrics(
         self,
@@ -114,10 +165,26 @@ class ComposeService:
             available = [s for s in symbols if s in prices_df.columns]
             if not available:
                 return None
-            total_qty = sum(h.quantity for h in request.holdings if h.code in available)
-            if total_qty <= 0:
+            
+            # 최신 가격으로 평가액 기반 비중 계산
+            latest_prices = prices_df[available].iloc[-1]
+            holdings_value = {}
+            total_value = 0.0
+            
+            for h in request.holdings:
+                if h.code in available and h.code in latest_prices:
+                    price = latest_prices[h.code]
+                    value = h.quantity * price
+                    holdings_value[h.code] = value
+                    total_value += value
+            
+            if total_value <= 0:
+                logger.warning("Total portfolio value is zero or negative in metrics calculation")
                 return None
-            weights = {h.code: h.quantity / total_qty for h in request.holdings if h.code in available}
+            
+            # 평가액 기반 비중
+            weights = {code: value / total_value for code, value in holdings_value.items()}
+            
             returns_df = prices_df[available].pct_change().dropna()
             if returns_df.empty:
                 return None
