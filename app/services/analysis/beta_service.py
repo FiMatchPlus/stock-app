@@ -30,7 +30,7 @@ class BetaService:
             
             # 최적화에 사용된 종목 목록 추출
             latest_weights = optimization_results['latest_weights']
-            portfolio_stocks = set(latest_weights['min_variance'].keys()) | set(latest_weights['max_sharpe'].keys())
+            portfolio_stocks = set(latest_weights['min_variance'].keys()) | set(latest_weights['max_sortino'].keys())
             
             if not portfolio_stocks:
                 logger.warning("No portfolio stocks found for beta calculation")
@@ -48,19 +48,19 @@ class BetaService:
                     expected_return = latest_expected_returns.get(stock_code, 0.0)
                     volatility = np.sqrt(latest_covariances.get(stock_code, {}).get(stock_code, 0.0))
                     
-                    # 포트폴리오와의 상관관계 계산 (최대 샤프 포트폴리오 기준)
-                    max_sharpe_weights = latest_weights['max_sharpe']
+                    # 포트폴리오와의 상관관계 계산 (최대 소르티노 포트폴리오 기준)
+                    max_sortino_weights = latest_weights['max_sortino']
                     portfolio_variance = 0.0
                     stock_portfolio_covariance = 0.0
                     
-                    for other_stock, weight in max_sharpe_weights.items():
+                    for other_stock, weight in max_sortino_weights.items():
                         if other_stock in latest_covariances:
                             if stock_code == other_stock:
                                 stock_portfolio_covariance += weight * latest_covariances.get(stock_code, {}).get(stock_code, 0.0)
                             else:
                                 stock_portfolio_covariance += weight * latest_covariances.get(stock_code, {}).get(other_stock, 0.0)
                             
-                            for other_stock2, weight2 in max_sharpe_weights.items():
+                            for other_stock2, weight2 in max_sortino_weights.items():
                                 if other_stock2 in latest_covariances.get(other_stock, {}):
                                     portfolio_variance += weight * weight2 * latest_covariances.get(other_stock, {}).get(other_stock2, 0.0)
                     
@@ -138,8 +138,8 @@ class BetaService:
                 logger.warning("No benchmark data available for portfolio beta calculation")
                 return None
             
-            # 백테스팅 기간의 포트폴리오 수익률 추출 (최대 샤프 포트폴리오 기준)
-            portfolio_returns = [r['max_sharpe'] for r in optimization_results['portfolio_returns']]
+            # 백테스팅 기간의 포트폴리오 수익률 추출 (최대 소르티노 포트폴리오 기준)
+            portfolio_returns = [r['max_sortino'] for r in optimization_results['portfolio_returns']]
             
             if len(portfolio_returns) < 10:
                 logger.warning(f"Insufficient portfolio returns for beta calculation: {len(portfolio_returns)}")

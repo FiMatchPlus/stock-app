@@ -17,7 +17,7 @@ class BenchmarkService:
         self,
         optimization_results: Dict[str, Any],
         benchmark_return: float,
-        portfolio_type: str = 'max_sharpe'
+        portfolio_type: str = 'max_sortino'
     ) -> tuple:
         """수익률 기여도 분석
         
@@ -27,7 +27,7 @@ class BenchmarkService:
         Args:
             optimization_results: 최적화 결과
             benchmark_return: 벤치마크 연환산 수익률
-            portfolio_type: 'max_sharpe' 또는 'min_variance'
+            portfolio_type: 'max_sortino' 또는 'min_variance'
             
         Returns:
             (security_selection, timing_effect) 튜플
@@ -104,9 +104,9 @@ class BenchmarkService:
             
             # 백테스팅 기간의 포트폴리오 수익률
             mv_returns = [r['min_variance'] for r in optimization_results['portfolio_returns']]
-            ms_returns = [r['max_sharpe'] for r in optimization_results['portfolio_returns']]
+            ms_returns = [r['max_sortino'] for r in optimization_results['portfolio_returns']]
             
-            # 최대 샤프 포트폴리오를 기준으로 비교 분석
+            # 최대 소르티노 포트폴리오를 기준으로 비교 분석
             portfolio_returns = pd.Series(ms_returns)
             
             # 벤치마크 수익률 조정
@@ -128,7 +128,7 @@ class BenchmarkService:
             security_selection, timing_effect = self._calculate_return_attribution(
                 optimization_results, 
                 benchmark_annual_return,
-                portfolio_type='max_sharpe'
+                portfolio_type='max_sortino'
             )
             
             return BenchmarkComparison(

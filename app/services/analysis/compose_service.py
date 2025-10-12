@@ -74,20 +74,20 @@ class ComposeService:
             benchmark_comparison=min_var_benchmark_comparison
         ))
         
-        # 3. 최대샤프 포트폴리오
-        max_sharpe_beta = await self._calculate_portfolio_beta_for_weights(
-            optimization_results, benchmark_returns, analysis_start, analysis_end, "max_sharpe"
+        # 3. 최대소르티노 포트폴리오
+        max_sortino_beta = await self._calculate_portfolio_beta_for_weights(
+            optimization_results, benchmark_returns, analysis_start, analysis_end, "max_sortino"
         )
-        max_sharpe_benchmark_comparison = await self._calculate_portfolio_benchmark_comparison(
-            optimization_results, benchmark_returns, "max_sharpe", benchmark_code
+        max_sortino_benchmark_comparison = await self._calculate_portfolio_benchmark_comparison(
+            optimization_results, benchmark_returns, "max_sortino", benchmark_code
         )
         
         portfolios.append(PortfolioData(
-            type="max_sharpe",
-            weights=latest_weights['max_sharpe'],
-            beta_analysis=max_sharpe_beta,
-            metrics=backtest_metrics.get('max_sharpe'),
-            benchmark_comparison=max_sharpe_benchmark_comparison
+            type="max_sortino",
+            weights=latest_weights['max_sortino'],
+            beta_analysis=max_sortino_beta,
+            metrics=backtest_metrics.get('max_sortino'),
+            benchmark_comparison=max_sortino_benchmark_comparison
         ))
         
         return portfolios

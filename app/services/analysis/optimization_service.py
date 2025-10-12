@@ -37,13 +37,11 @@ class OptimizationService:
         if total_days < min_required_days:
             raise ValueError(f"Insufficient data: need at least {min_required_days} days, got {total_days}")
         
-        logger.info(f"Rolling optimization config: window={window_days}d, step={step_days}d, backtest={backtest_days}d")
-        
         # 최적화 결과 저장
         optimization_results = {
             'dates': [],
             'min_variance_weights': [],
-            'max_sharpe_weights': [],
+            'max_sortino_weights': [],
             'portfolio_returns': [],
             'window_var_cvar': [],  # 윈도우별 VaR/CVaR 저장
             'expected_returns': [],
@@ -65,14 +63,13 @@ class OptimizationService:
             
             # 통계 계산
             expected_returns = window_returns.mean() * 252.0
-            cov_matrix = window_returns.cov() * 252.0
             
-            # Semi-covariance matrix 계산 (하방위험용)
+            # Semi-covariance matrix 계산 (하방위험 전용 - 양쪽 전략 모두 사용)
             semi_cov_matrix = self._calculate_semi_covariance(window_returns, target_return=0.0)
             
-            # 포트폴리오 최적화
+            # 포트폴리오 최적화 (둘 다 하방위험 기준)
             min_var_weights = self._optimize_min_variance(semi_cov_matrix)
-            max_sharpe_weights = self._optimize_max_sharpe(expected_returns, cov_matrix, risk_free_rate)
+            max_sortino_weights = self._optimize_max_sortino(expected_returns, semi_cov_matrix, risk_free_rate)
             
             # 다음 기간의 실제 수익률 계산 (백테스팅용)
             # 백테스팅 기간(3개월)의 데이터로 성과 평가 및 VaR/CVaR 계산
@@ -82,7 +79,7 @@ class OptimizationService:
                 
                 # 최적화된 비중으로 포트폴리오 수익률 계산 (일별)
                 mv_portfolio_returns = next_period_returns.dot(min_var_weights)
-                ms_portfolio_returns = next_period_returns.dot(max_sharpe_weights)
+                ms_portfolio_returns = next_period_returns.dot(max_sortino_weights)
                 
                 # 윈도우별 VaR/CVaR 계산 (백테스팅 기간 전체 사용)
                 mv_var, mv_cvar = self._calculate_var_cvar(mv_portfolio_returns)
@@ -91,8 +88,6 @@ class OptimizationService:
                 # 다음 기간의 평균 수익률 (성과 평가용)
                 mv_portfolio_return = float(mv_portfolio_returns.mean())
                 ms_portfolio_return = float(ms_portfolio_returns.mean())
-                
-                logger.debug(f"Backtest period: {backtest_days} days, returns count: {len(mv_portfolio_returns)}, VaR: {mv_var:.4f}, CVaR: {mv_cvar:.4f}")
             else:
                 mv_portfolio_return = 0.0
                 ms_portfolio_return = 0.0
@@ -101,22 +96,22 @@ class OptimizationService:
             # 결과 저장
             optimization_results['dates'].append(window_date)
             optimization_results['min_variance_weights'].append(min_var_weights.to_dict())
-            optimization_results['max_sharpe_weights'].append(max_sharpe_weights.to_dict())
+            optimization_results['max_sortino_weights'].append(max_sortino_weights.to_dict())
             optimization_results['portfolio_returns'].append({
                 'min_variance': mv_portfolio_return,
-                'max_sharpe': ms_portfolio_return
+                'max_sortino': ms_portfolio_return
             })
             optimization_results['window_var_cvar'].append({
-                'min_variance': {'var': mv_var, 'cvar': mv_cvar},
-                'max_sharpe': {'var': ms_var, 'cvar': ms_cvar}
+                'Min Variance': {'var': mv_var, 'cvar': mv_cvar},
+                'Max Sortino': {'var': ms_var, 'cvar': ms_cvar}
             })
             optimization_results['expected_returns'].append(expected_returns.to_dict())
-            optimization_results['covariances'].append(cov_matrix.to_dict())
+            optimization_results['covariances'].append(semi_cov_matrix.to_dict())
         
         # 최신 비중 저장 (마지막 윈도우의 비중)
         optimization_results['latest_weights'] = {
             'min_variance': optimization_results['min_variance_weights'][-1],
-            'max_sharpe': optimization_results['max_sharpe_weights'][-1]
+            'max_sortino': optimization_results['max_sortino_weights'][-1]
         }
         
         logger.info(f"Completed rolling optimization: {len(optimization_results['dates'])} windows processed")
@@ -197,17 +192,29 @@ class OptimizationService:
             logger.error(f"Min downside risk optimization error: {e}")
             return self._fallback_min_variance_weights(cov_matrix)
 
-    def _optimize_max_sharpe(self, expected_returns: pd.Series, cov_matrix: pd.DataFrame, risk_free_rate: float) -> pd.Series:
-        """최대 샤프 비율 포트폴리오 최적화"""
+    def _optimize_max_sortino(self, expected_returns: pd.Series, cov_matrix: pd.DataFrame, risk_free_rate: float) -> pd.Series:
+        """최대 소르티노 비율 포트폴리오 최적화
+        
+        하방표준편차(Downside Deviation)를 위험 척도로 사용하여 소르티노 비율 최대화
+        Semi-covariance matrix를 사용하여 손실 상황의 위험만 고려
+        
+        Sortino Ratio = (R_p - R_f) / σ_downside
+        
+        Args:
+            expected_returns: 기대수익률 벡터
+            cov_matrix: Semi-covariance 행렬 (하방위험)
+            risk_free_rate: 무위험수익률
+        """
         n_assets = len(expected_returns)
         
-        # 목적 함수: 샤프 비율 최대화 (음의 샤프 비율 최소화)
+        # 목적 함수: 소르티노 비율 최대화 (하방위험 기준)
+        # Sortino = (R_p - R_f) / σ_downside
         def objective(weights):
             portfolio_return = np.dot(weights, expected_returns.values)
-            portfolio_variance = np.dot(weights, np.dot(cov_matrix.values, weights))
-            portfolio_std = np.sqrt(max(portfolio_variance, 1e-8))
-            sharpe_ratio = (portfolio_return - risk_free_rate) / portfolio_std
-            return -sharpe_ratio  # 음수를 취해서 최소화
+            portfolio_downside_variance = np.dot(weights, np.dot(cov_matrix.values, weights))
+            portfolio_downside_std = np.sqrt(max(portfolio_downside_variance, 1e-8))
+            sortino_ratio = (portfolio_return - risk_free_rate) / portfolio_downside_std
+            return -sortino_ratio  # 음수를 취해서 최소화
         
         # 제약 조건: 비중의 합 = 1, 비중 >= 0
         constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
@@ -222,11 +229,11 @@ class OptimizationService:
                 weights = pd.Series(result.x, index=expected_returns.index)
                 return weights / weights.sum()  # 정규화
             else:
-                logger.warning("Max sharpe optimization failed, using expected return weighted weights")
-                return self._fallback_max_sharpe_weights(expected_returns, cov_matrix, risk_free_rate)
+                logger.warning("Max sortino optimization failed, using fallback method")
+                return self._fallback_max_sortino_weights(expected_returns, cov_matrix, risk_free_rate)
         except Exception as e:
-            logger.error(f"Max sharpe optimization error: {e}")
-            return self._fallback_max_sharpe_weights(expected_returns, cov_matrix, risk_free_rate)
+            logger.error(f"Max sortino optimization error: {e}")
+            return self._fallback_max_sortino_weights(expected_returns, cov_matrix, risk_free_rate)
 
     def _fallback_min_variance_weights(self, cov_matrix: pd.DataFrame) -> pd.Series:
         """최소 하방위험 최적화 실패 시 대체 방법 (inverse semi-variance)"""
@@ -235,11 +242,11 @@ class OptimizationService:
         w = inv_var / inv_var.sum() if inv_var.sum() > 0 else np.ones_like(inv_var) / len(inv_var)
         return pd.Series(w, index=cov_matrix.columns)
 
-    def _fallback_max_sharpe_weights(self, expected_returns: pd.Series, cov_matrix: pd.DataFrame, risk_free_rate: float) -> pd.Series:
-        """최대 샤프 최적화 실패 시 대체 방법"""
-        diag_var = np.diag(cov_matrix.values)
+    def _fallback_max_sortino_weights(self, expected_returns: pd.Series, cov_matrix: pd.DataFrame, risk_free_rate: float) -> pd.Series:
+        """최대 소르티노 최적화 실패 시 대체 방법 (하방위험 기준)"""
+        diag_downside_var = np.diag(cov_matrix.values)  # Semi-covariance 대각 성분
         excess = (expected_returns.values - risk_free_rate)
-        score = np.where(diag_var > 0, excess / diag_var, 0.0)
+        score = np.where(diag_downside_var > 0, excess / diag_downside_var, 0.0)
         score = np.maximum(score, 0.0)
         if score.sum() == 0:
             score = np.ones_like(score)
