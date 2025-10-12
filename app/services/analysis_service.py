@@ -150,7 +150,7 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
         capped_assets = []
         cap_threshold = 0.9
         if 'latest_weights' in optimization_results:
-            latest_ms = optimization_results['latest_weights'].get('max_sharpe', {})
+            latest_ms = optimization_results['latest_weights'].get('max_sortino', {})
             latest_mv = optimization_results['latest_weights'].get('min_variance', {})
             for name, w in {**latest_ms, **latest_mv}.items():
                 try:

@@ -25,10 +25,10 @@ class MetricsService:
         
         # 포트폴리오 수익률 시계열 추출
         mv_returns = [r['min_variance'] for r in optimization_results['portfolio_returns']]
-        ms_returns = [r['max_sharpe'] for r in optimization_results['portfolio_returns']]
+        ms_returns = [r['max_sortino'] for r in optimization_results['portfolio_returns']]
         
         mv_returns_series = pd.Series(mv_returns, name='min_variance')
-        ms_returns_series = pd.Series(ms_returns, name='max_sharpe')
+        ms_returns_series = pd.Series(ms_returns, name='max_sortino')
         
         # 벤치마크 수익률과 동기화
         if not benchmark_returns.empty:
@@ -44,12 +44,12 @@ class MetricsService:
             mv_returns_series, benchmark_period_returns, risk_free_rate, "Min Variance", optimization_results
         )
         ms_metrics = self._calculate_portfolio_metrics(
-            ms_returns_series, benchmark_period_returns, risk_free_rate, "Max Sharpe", optimization_results
+            ms_returns_series, benchmark_period_returns, risk_free_rate, "Max Sortino", optimization_results
         )
         
         return {
             "min_variance": mv_metrics,
-            "max_sharpe": ms_metrics,
+            "max_sortino": ms_metrics,
         }
 
     def _align_benchmark_returns(self, benchmark_returns: pd.Series, optimization_dates: List) -> pd.Series:
@@ -267,7 +267,6 @@ class MetricsService:
         """
         try:
             if len(returns) < 5:  # 최소 5개 이상의 데이터 필요 (95% 분위수 계산)
-                logger.debug(f"Insufficient data for VaR/CVaR: {len(returns)} returns")
                 return 0.0, 0.0
             
             # 수익률을 numpy 배열로 변환
@@ -284,8 +283,6 @@ class MetricsService:
             # 참고: 일별 -2% VaR는 "95% 확률로 하루 손실이 -2% 이내"를 의미
             var_value = float(var_95)
             cvar_value = float(cvar_95) if not np.isnan(cvar_95) else var_95
-            
-            logger.debug(f"VaR/CVaR calculated from {len(returns)} returns: VaR={var_value:.4f}, CVaR={cvar_value:.4f}")
             
             return var_value, cvar_value
             
