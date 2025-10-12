@@ -257,23 +257,35 @@ class MetricsService:
             return 0.0
 
     def _calculate_var_cvar(self, returns: pd.Series) -> Tuple[float, float]:
-        """VaR 95% 및 CVaR 95% 계산"""
+        """VaR 95% 및 CVaR 95% 계산
+        
+        Args:
+            returns: 일별 포트폴리오 수익률 시계열
+            
+        Returns:
+            (var_95, cvar_95): 일별 VaR/CVaR 값 (음수)
+        """
         try:
-            if len(returns) < 10:  # 충분한 데이터가 있어야 VaR 계산 가능
+            if len(returns) < 5:  # 최소 5개 이상의 데이터 필요 (95% 분위수 계산)
+                logger.debug(f"Insufficient data for VaR/CVaR: {len(returns)} returns")
                 return 0.0, 0.0
             
             # 수익률을 numpy 배열로 변환
             returns_array = returns.values
             
-            # 95% VaR 계산 (5% 분위수)
+            # 95% VaR 계산 (5% 분위수 - 하위 5% 손실)
             var_95 = np.percentile(returns_array, 5)
             
-            # 95% CVaR 계산 (VaR보다 작은 값들의 평균)
-            cvar_95 = returns_array[returns_array <= var_95].mean()
+            # 95% CVaR 계산 (VaR보다 작은 값들의 평균 - 최악 5% 평균 손실)
+            tail_losses = returns_array[returns_array <= var_95]
+            cvar_95 = tail_losses.mean() if len(tail_losses) > 0 else var_95
             
-            # 연환산으로 변환
-            var_value = float(var_95 * np.sqrt(252))  # 연환산
-            cvar_value = float(cvar_95 * np.sqrt(252)) if not np.isnan(cvar_95) else 0.0  # 연환산
+            # VaR/CVaR은 일별 손실률이므로 그대로 반환 (음수 값)
+            # 참고: 일별 -2% VaR는 "95% 확률로 하루 손실이 -2% 이내"를 의미
+            var_value = float(var_95)
+            cvar_value = float(cvar_95) if not np.isnan(cvar_95) else var_95
+            
+            logger.debug(f"VaR/CVaR calculated from {len(returns)} returns: VaR={var_value:.4f}, CVaR={cvar_value:.4f}")
             
             return var_value, cvar_value
             

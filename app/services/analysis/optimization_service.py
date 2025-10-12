@@ -22,16 +22,22 @@ class OptimizationService:
         
         logger.info("Starting rolling window optimization")
         
-        # 윈도우 크기 (3년 = 약 756 거래일)
-        window_days = 252 * self.window_years
+        # 윈도우 크기 (1년 = 252 거래일)
+        window_days = int(252 * self.window_years)
         
-        # 이동 간격 (1개월 = 약 21 거래일)
-        step_days = 21
+        # 이동 간격 (2주 = 약 10.5 거래일)
+        step_days = int(21 * self.step_months)
+        
+        # 백테스팅 기간 (3개월 = 63 거래일) - VaR/CVaR 계산용
+        backtest_days = int(21 * self.backtest_months)
         
         # 전체 데이터 길이 확인
         total_days = len(prices_df)
-        if total_days < window_days + step_days:
-            raise ValueError(f"Insufficient data: need at least {window_days + step_days} days, got {total_days}")
+        min_required_days = window_days + backtest_days
+        if total_days < min_required_days:
+            raise ValueError(f"Insufficient data: need at least {min_required_days} days, got {total_days}")
+        
+        logger.info(f"Rolling optimization config: window={window_days}d, step={step_days}d, backtest={backtest_days}d")
         
         # 최적화 결과 저장
         optimization_results = {
@@ -69,21 +75,24 @@ class OptimizationService:
             max_sharpe_weights = self._optimize_max_sharpe(expected_returns, cov_matrix, risk_free_rate)
             
             # 다음 기간의 실제 수익률 계산 (백테스팅용)
-            if end_idx < total_days - 1:
-                next_period_prices = prices_df.iloc[end_idx:end_idx + step_days]
-                next_period_returns = next_period_prices.pct_change().fillna(0.0)
+            # 백테스팅 기간(3개월)의 데이터로 성과 평가 및 VaR/CVaR 계산
+            if end_idx < total_days - backtest_days:
+                next_period_prices = prices_df.iloc[end_idx:end_idx + backtest_days]
+                next_period_returns = next_period_prices.pct_change().dropna()  # NaN 제거
                 
                 # 최적화된 비중으로 포트폴리오 수익률 계산 (일별)
                 mv_portfolio_returns = next_period_returns.dot(min_var_weights)
                 ms_portfolio_returns = next_period_returns.dot(max_sharpe_weights)
                 
-                # 윈도우별 VaR/CVaR 계산
+                # 윈도우별 VaR/CVaR 계산 (백테스팅 기간 전체 사용)
                 mv_var, mv_cvar = self._calculate_var_cvar(mv_portfolio_returns)
                 ms_var, ms_cvar = self._calculate_var_cvar(ms_portfolio_returns)
                 
-                # 다음 기간의 평균 수익률
+                # 다음 기간의 평균 수익률 (성과 평가용)
                 mv_portfolio_return = float(mv_portfolio_returns.mean())
                 ms_portfolio_return = float(ms_portfolio_returns.mean())
+                
+                logger.debug(f"Backtest period: {backtest_days} days, returns count: {len(mv_portfolio_returns)}, VaR: {mv_var:.4f}, CVaR: {mv_cvar:.4f}")
             else:
                 mv_portfolio_return = 0.0
                 ms_portfolio_return = 0.0
