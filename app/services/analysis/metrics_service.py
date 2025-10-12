@@ -24,10 +24,10 @@ class MetricsService:
         logger.info("Calculating backtest metrics")
         
         # 포트폴리오 수익률 시계열 추출
-        mv_returns = [r['min_variance'] for r in optimization_results['portfolio_returns']]
+        mv_returns = [r['min_downside_risk'] for r in optimization_results['portfolio_returns']]
         ms_returns = [r['max_sortino'] for r in optimization_results['portfolio_returns']]
         
-        mv_returns_series = pd.Series(mv_returns, name='min_variance')
+        mv_returns_series = pd.Series(mv_returns, name='min_downside_risk')
         ms_returns_series = pd.Series(ms_returns, name='max_sortino')
         
         # 벤치마크 수익률과 동기화
@@ -48,7 +48,7 @@ class MetricsService:
         )
         
         return {
-            "min_variance": mv_metrics,
+            "min_downside_risk": mv_metrics,
             "max_sortino": ms_metrics,
         }
 

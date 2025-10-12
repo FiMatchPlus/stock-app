@@ -30,7 +30,7 @@ class BetaService:
             
             # 최적화에 사용된 종목 목록 추출
             latest_weights = optimization_results['latest_weights']
-            portfolio_stocks = set(latest_weights['min_variance'].keys()) | set(latest_weights['max_sortino'].keys())
+            portfolio_stocks = set(latest_weights['min_downside_risk'].keys()) | set(latest_weights['max_sortino'].keys())
             
             if not portfolio_stocks:
                 logger.warning("No portfolio stocks found for beta calculation")

@@ -58,19 +58,19 @@ class ComposeService:
             benchmark_comparison=user_benchmark_comparison
         ))
         
-        # 2. 최소분산 포트폴리오
+        # 2. 최소 하방위험 포트폴리오 (Min Downside Risk)
         min_var_beta = await self._calculate_portfolio_beta_for_weights(
-            optimization_results, benchmark_returns, analysis_start, analysis_end, "min_variance"
+            optimization_results, benchmark_returns, analysis_start, analysis_end, "min_downside_risk"
         )
         min_var_benchmark_comparison = await self._calculate_portfolio_benchmark_comparison(
-            optimization_results, benchmark_returns, "min_variance", benchmark_code
+            optimization_results, benchmark_returns, "min_downside_risk", benchmark_code
         )
         
         portfolios.append(PortfolioData(
-            type="min_variance",
-            weights=latest_weights['min_variance'],
+            type="min_downside_risk",
+            weights=latest_weights['min_downside_risk'],
             beta_analysis=min_var_beta,
-            metrics=backtest_metrics.get('min_variance'),
+            metrics=backtest_metrics.get('min_downside_risk'),
             benchmark_comparison=min_var_benchmark_comparison
         ))
         

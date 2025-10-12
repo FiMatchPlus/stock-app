@@ -40,7 +40,7 @@ class OptimizationService:
         # 최적화 결과 저장
         optimization_results = {
             'dates': [],
-            'min_variance_weights': [],
+            'min_downside_risk_weights': [],
             'max_sortino_weights': [],
             'portfolio_returns': [],
             'window_var_cvar': [],  # 윈도우별 VaR/CVaR 저장
@@ -95,14 +95,14 @@ class OptimizationService:
             
             # 결과 저장
             optimization_results['dates'].append(window_date)
-            optimization_results['min_variance_weights'].append(min_var_weights.to_dict())
+            optimization_results['min_downside_risk_weights'].append(min_var_weights.to_dict())
             optimization_results['max_sortino_weights'].append(max_sortino_weights.to_dict())
             optimization_results['portfolio_returns'].append({
-                'min_variance': mv_portfolio_return,
+                'min_downside_risk': mv_portfolio_return,
                 'max_sortino': ms_portfolio_return
             })
             optimization_results['window_var_cvar'].append({
-                'Min Variance': {'var': mv_var, 'cvar': mv_cvar},
+                'Min Downside Risk': {'var': mv_var, 'cvar': mv_cvar},
                 'Max Sortino': {'var': ms_var, 'cvar': ms_cvar}
             })
             optimization_results['expected_returns'].append(expected_returns.to_dict())
@@ -110,7 +110,7 @@ class OptimizationService:
         
         # 최신 비중 저장 (마지막 윈도우의 비중)
         optimization_results['latest_weights'] = {
-            'min_variance': optimization_results['min_variance_weights'][-1],
+            'min_downside_risk': optimization_results['min_downside_risk_weights'][-1],
             'max_sortino': optimization_results['max_sortino_weights'][-1]
         }
         
@@ -165,17 +165,23 @@ class OptimizationService:
         
         하방표준편차(Downside Deviation)를 최소화하는 포트폴리오 비중 계산
         목표 수익률(0) 이하의 수익률만 고려하여 위험 측정
+        
+        제약조건:
+        - 각 종목 최소 비중: 5% (0.05)
+        - 각 종목 최대 비중: 100% (1.0)
+        - 비중 합계: 100% (1.0)
         """
         n_assets = len(cov_matrix)
+        min_weight = 0.05  # 최소 비중 5%
         
         # 목적 함수: 포트폴리오 하방위험(semi-variance) 최소화
         # w^T * Σ_semi * w (Semi-covariance matrix 사용)
         def objective(weights):
             return np.dot(weights, np.dot(cov_matrix.values, weights))
         
-        # 제약 조건: 비중의 합 = 1, 비중 >= 0
+        # 제약 조건: 비중의 합 = 1, 비중 >= 5%
         constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
-        bounds = tuple((0, 1) for _ in range(n_assets))
+        bounds = tuple((min_weight, 1) for _ in range(n_assets))
         
         # 초기값 (균등 비중)
         x0 = np.ones(n_assets) / n_assets
@@ -200,12 +206,18 @@ class OptimizationService:
         
         Sortino Ratio = (R_p - R_f) / σ_downside
         
+        제약조건:
+        - 각 종목 최소 비중: 5% (0.05)
+        - 각 종목 최대 비중: 100% (1.0)
+        - 비중 합계: 100% (1.0)
+        
         Args:
             expected_returns: 기대수익률 벡터
             cov_matrix: Semi-covariance 행렬 (하방위험)
             risk_free_rate: 무위험수익률
         """
         n_assets = len(expected_returns)
+        min_weight = 0.05  # 최소 비중 5%
         
         # 목적 함수: 소르티노 비율 최대화 (하방위험 기준)
         # Sortino = (R_p - R_f) / σ_downside
@@ -216,9 +228,9 @@ class OptimizationService:
             sortino_ratio = (portfolio_return - risk_free_rate) / portfolio_downside_std
             return -sortino_ratio  # 음수를 취해서 최소화
         
-        # 제약 조건: 비중의 합 = 1, 비중 >= 0
+        # 제약 조건: 비중의 합 = 1, 비중 >= 5%
         constraints = {'type': 'eq', 'fun': lambda x: np.sum(x) - 1}
-        bounds = tuple((0, 1) for _ in range(n_assets))
+        bounds = tuple((min_weight, 1) for _ in range(n_assets))
         
         # 초기값 (균등 비중)
         x0 = np.ones(n_assets) / n_assets
