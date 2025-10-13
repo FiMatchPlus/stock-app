@@ -56,6 +56,16 @@ class DataService:
 
         pivot = df.pivot_table(index="datetime", columns="stock_code", values="close", aggfunc="first")
         pivot = pivot.sort_index()
+        
+        # NaN 처리: forward fill (가장 최근 유효 가격으로 채우기)
+        # 거래정지/상장폐지 등으로 최신 날짜 데이터가 없을 수 있음
+        pivot = pivot.ffill()
+        
+        # 여전히 NaN이 있다면 (처음부터 데이터가 없는 경우) 경고
+        if pivot.isnull().any().any():
+            null_stocks = pivot.columns[pivot.isnull().any()].tolist()
+            logger.warning(f"Stocks with remaining NaN values after forward fill: {null_stocks}")
+        
         return pivot
 
     def _synchronize_time_series(

@@ -125,6 +125,10 @@ class ComposeService:
         for h in request.holdings:
             if h.code in latest_prices:
                 price = latest_prices[h.code]
+                # NaN 체크 추가
+                if pd.isna(price):
+                    logger.warning(f"Price is NaN for stock {h.code}, excluding from weight calculation")
+                    continue
                 value = h.quantity * price
                 holdings_value[h.code] = value
                 total_value += value
@@ -132,8 +136,8 @@ class ComposeService:
                 logger.warning(f"No price data for stock {h.code}, excluding from weight calculation")
         
         # 비중 계산
-        if total_value <= 0:
-            logger.warning("Total portfolio value is zero or negative")
+        if total_value <= 0 or pd.isna(total_value):
+            logger.warning(f"Total portfolio value is invalid: {total_value}")
             return {}
         
         weights = {code: value / total_value for code, value in holdings_value.items()}
@@ -174,12 +178,16 @@ class ComposeService:
             for h in request.holdings:
                 if h.code in available and h.code in latest_prices:
                     price = latest_prices[h.code]
+                    # NaN 체크 추가
+                    if pd.isna(price):
+                        logger.warning(f"Price is NaN for stock {h.code} in metrics calculation, excluding")
+                        continue
                     value = h.quantity * price
                     holdings_value[h.code] = value
                     total_value += value
             
-            if total_value <= 0:
-                logger.warning("Total portfolio value is zero or negative in metrics calculation")
+            if total_value <= 0 or pd.isna(total_value):
+                logger.warning(f"Total portfolio value is invalid in metrics calculation: {total_value}")
                 return None
             
             # 평가액 기반 비중
