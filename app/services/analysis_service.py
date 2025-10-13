@@ -183,16 +183,24 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
                     continue
 
         # 메타데이터 구성
-        prices_start = prices_df.index.min().isoformat() if not prices_df.empty else None
-        prices_end = prices_df.index.max().isoformat() if not prices_df.empty else None
+        # 실제 사용된 데이터 기간 (거래일 기준)
+        actual_start = prices_df.index.min() if not prices_df.empty else analysis_start
+        actual_end = prices_df.index.max() if not prices_df.empty else analysis_end
+        
+        prices_start = actual_start.isoformat() if not prices_df.empty else None
+        prices_end = actual_end.isoformat() if not prices_df.empty else None
         bench_start = benchmark_returns.index.min().isoformat() if not benchmark_returns.empty else None
         bench_end = benchmark_returns.index.max().isoformat() if not benchmark_returns.empty else None
         total_windows = len(optimization_results.get('dates', []))
 
+        # 요청 기간과 실제 사용 기간 표시
+        requested_period = f"requested=[{analysis_start.strftime('%Y-%m-%d')}..{analysis_end.strftime('%Y-%m-%d')}]"
+        actual_period = f"actual=[{prices_start}..{prices_end}]"
+        
         base_notes = (
             f"benchmark={benchmark_code or 'N/A'}, "
             f"window_years={self.window_years}, step_months={self.step_months}, backtest_months={self.backtest_months}, windows={total_windows}, "
-            f"prices_range=[{prices_start}..{prices_end}], benchmark_range=[{bench_start}..{bench_end}]"
+            f"{requested_period}, {actual_period}, benchmark_range=[{bench_start}..{bench_end}]"
         )
         
         # 제약조건 정보 추가
@@ -212,7 +220,7 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
 
         metadata = AnalysisMetadata(
             risk_free_rate_used=risk_free_rate,
-            period={"start": analysis_start, "end": analysis_end},
+            period={"start": actual_start, "end": actual_end},
             notes=notes,
             execution_time=execution_time,
             portfolio_id=request.portfolio_id,
