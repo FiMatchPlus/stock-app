@@ -63,16 +63,8 @@ class BacktestExecutionService:
             aggfunc='first'
         )
         
-        # 수익률 피벗 테이블
-        returns_pivot = stock_prices.pivot_table(
-            index='datetime', 
-            columns='stock_code', 
-            values='returns',
-            aggfunc='first'
-        )
-        
         # 피벗 테이블이 비어있는지 확인
-        if price_pivot.empty or returns_pivot.empty:
+        if price_pivot.empty:
             logger.error("Empty pivot tables created from stock prices data")
             raise MissingStockPriceDataException(
                 missing_stocks=[{
@@ -199,19 +191,25 @@ class BacktestExecutionService:
             for stock_code in common_stocks:
                 if pd.notna(price_data.loc[date, stock_code]):
                     stock_price = price_data.loc[date, stock_code]
-                    stock_return = returns_pivot.loc[date, stock_code] if pd.notna(returns_pivot.loc[date, stock_code]) else 0.0
                     stock_quantity = quantities[stock_code]
                     stock_value = stock_price * stock_quantity
                     stock_weight = stock_value / current_portfolio_value if current_portfolio_value > 0 else 0.0
                     
-                    # 포트폴리오 수익률 기여도 계산
-                    portfolio_contribution = stock_return * stock_weight if stock_weight > 0 else 0.0
+                    # 종목 일별 수익률 계산 (평균 매수가 대비)
+                    if stock_code in avg_prices:
+                        stock_return = (stock_price - avg_prices[stock_code]) / avg_prices[stock_code]
+                    else:
+                        stock_return = 0.0
+                    
+                    # 포트폴리오 일별 수익률 기여도 계산 (전일 대비)
+                    # daily_return(포트폴리오)는 이미 계산되었으므로, 비중만 저장
+                    portfolio_contribution = daily_return * stock_weight if stock_weight > 0 else 0.0
                     
                     daily_stocks.append({
                         'stock_code': stock_code,
                         'date': date.isoformat(),
                         'close_price': float(stock_price),
-                        'daily_return': float(stock_return),
+                        'daily_return': float(stock_return),  # 평균 매수가 대비 누적 수익률
                         'portfolio_weight': float(stock_weight),
                         'portfolio_contribution': float(portfolio_contribution),
                         'quantity': stock_quantity,

@@ -85,7 +85,8 @@ class BacktestDataService:
                 'open_price': price.open_price,
                 'high_price': price.high_price,
                 'low_price': price.low_price,
-                'volume': price.volume
+                'volume': price.volume,
+                'change_rate': price.change_rate
             })
         
         df = pd.DataFrame(data)

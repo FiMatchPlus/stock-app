@@ -23,17 +23,35 @@ class BacktestMetricsService:
         if not result_summary:
             raise ValueError("백테스트 결과 데이터가 없어 성과 지표를 계산할 수 없습니다.")
         
-        # 포트폴리오 수익률 배열 추출 (종목별 기여도 합계)
+        # 포트폴리오 가치 기반 일별 수익률 계산
         returns = []
+        prev_value = None
+        initial_value = None
+        final_value = None
+        
         for rs in result_summary:
-            # 각 날짜의 모든 종목 기여도 합계
-            daily_return = sum(stock['portfolio_contribution'] for stock in rs['stocks'])
+            portfolio_value = rs['portfolio_value']
+            
+            if initial_value is None:
+                initial_value = portfolio_value
+            final_value = portfolio_value
+            
+            if prev_value is None:
+                # 첫날은 수익률 0
+                daily_return = 0.0
+            else:
+                # 전일 대비 수익률
+                daily_return = (portfolio_value - prev_value) / prev_value if prev_value > 0 else 0.0
+            
             returns.append(daily_return)
+            prev_value = portfolio_value
         
         returns = np.array(returns)
         
-        # 기본 통계량 계산
-        total_return = (1 + returns).prod() - 1
+        # 기본 통계량 계산 - 초기/최종 가치 기반
+        total_return = (final_value - initial_value) / initial_value if initial_value > 0 else 0.0
+        
+        logger.info(f"Portfolio return calculation: initial={initial_value:,.0f}, final={final_value:,.0f}, return={total_return*100:.2f}%")
         
         # 연환산 수익률
         days = len(returns)

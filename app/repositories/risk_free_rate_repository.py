@@ -146,7 +146,7 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
     ) -> pd.Series:
         """누락된 날짜의 금리를 보간하여 시계열 생성"""
         try:
-            # 기존 시리즈를 날짜 인덱스로 리인덱싱
+            # 날짜 인덱스로 리인덱싱
             complete_series = rate_series.reindex(target_dates)
             
             # 전진 채우기로 누락 데이터 보간
