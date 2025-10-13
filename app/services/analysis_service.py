@@ -13,6 +13,7 @@ from __future__ import annotations
 from typing import Dict, List, Optional, Tuple, Any
 from datetime import datetime, timedelta
 from sqlalchemy.ext.asyncio import AsyncSession
+import time
 
 from app.models.schemas import (
     AnalysisRequest,
@@ -55,6 +56,9 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
         session: AsyncSession,
     ) -> PortfolioAnalysisResponse:
         """이동 윈도우 기반 포트폴리오 분석 실행"""
+        
+        # 실행 시간 측정 시작
+        start_time = time.time()
 
         # 전체 분석 기간 설정 (최소 5년 권장)
         analysis_end = datetime.utcnow()
@@ -67,11 +71,12 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
         # 전체 기간의 포트폴리오 가격 데이터 로드
         prices_df = await self._load_daily_prices(session, request, analysis_start, analysis_end)
         if prices_df.empty:
+            execution_time = time.time() - start_time
             metadata = AnalysisMetadata(
                 risk_free_rate_used=0.0,
                 period={"start": analysis_start, "end": analysis_end},
                 notes="No price data available for requested holdings.",
-                execution_time=None,
+                execution_time=execution_time,
                 portfolio_id=request.portfolio_id,
                 timestamp=None,
             )
@@ -200,12 +205,16 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
             floor_notes = f", weight_floor_applied=0.05, floored_assets={floored_assets}, WARNING: 일부 종목이 최소 비중 5%에 도달했습니다. 종목 조합을 다시 고려하세요."
         
         notes = base_notes + constraint_notes + cap_notes + floor_notes
+        
+        # 실행 시간 계산
+        execution_time = time.time() - start_time
+        logger.info(f"Portfolio analysis completed in {execution_time:.3f} seconds")
 
         metadata = AnalysisMetadata(
             risk_free_rate_used=risk_free_rate,
             period={"start": analysis_start, "end": analysis_end},
             notes=notes,
-            execution_time=None,
+            execution_time=execution_time,
             portfolio_id=request.portfolio_id,
             timestamp=None
         )

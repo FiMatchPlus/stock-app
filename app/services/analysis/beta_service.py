@@ -138,29 +138,37 @@ class BetaService:
                 logger.warning("No benchmark data available for portfolio beta calculation")
                 return None
             
-            # 백테스팅 기간의 포트폴리오 수익률 추출 (최대 소르티노 포트폴리오 기준)
+            # 백테스팅 기간의 포트폴리오 수익률 추출 (최대 소르티노 포트폴리오 기준, 날짜 인덱스 포함)
             portfolio_returns = [r['max_sortino'] for r in optimization_results['portfolio_returns']]
+            dates = optimization_results['dates']
             
             if len(portfolio_returns) < 10:
                 logger.warning(f"Insufficient portfolio returns for beta calculation: {len(portfolio_returns)}")
                 return None
             
-            # 포트폴리오 수익률을 시계열로 변환
-            portfolio_returns_series = pd.Series(portfolio_returns)
+            # 포트폴리오 수익률을 시계열로 변환 (날짜 인덱스 사용)
+            portfolio_returns_series = pd.Series(portfolio_returns, index=dates)
             
             # 벤치마크 수익률과 동기화
             benchmark_period_returns = self._align_benchmark_returns(
                 benchmark_returns, optimization_results['dates']
             )
+            # 벤치마크도 같은 인덱스 사용
+            benchmark_period_returns.index = dates
             
             if len(benchmark_period_returns) < 10:
                 logger.warning(f"Insufficient benchmark returns for beta calculation: {len(benchmark_period_returns)}")
                 return None
             
-            # 베타 계산 (회귀분석)
-            common_length = min(len(portfolio_returns_series), len(benchmark_period_returns))
-            portfolio_aligned = portfolio_returns_series.iloc[:common_length]
-            benchmark_aligned = benchmark_period_returns.iloc[:common_length]
+            # 베타 계산 (회귀분석) - 공통 인덱스 기반
+            common_index = portfolio_returns_series.index.intersection(benchmark_period_returns.index)
+            
+            if len(common_index) < 10:
+                logger.warning(f"Insufficient common data points for beta calculation: {len(common_index)}")
+                return None
+            
+            portfolio_aligned = portfolio_returns_series.loc[common_index]
+            benchmark_aligned = benchmark_period_returns.loc[common_index]
             
             slope, intercept, r_value, p_value, std_err = linregress(
                 benchmark_aligned.values, 
@@ -195,29 +203,37 @@ class BetaService:
                 logger.warning(f"No benchmark data available for {portfolio_type} beta calculation")
                 return None
             
-            # 백테스팅 기간의 포트폴리오 수익률 추출
+            # 백테스팅 기간의 포트폴리오 수익률 추출 (날짜 인덱스 포함)
             portfolio_returns = [r[portfolio_type] for r in optimization_results['portfolio_returns']]
+            dates = optimization_results['dates']
             
             if len(portfolio_returns) < 10:
                 logger.warning(f"Insufficient portfolio returns for {portfolio_type} beta calculation: {len(portfolio_returns)}")
                 return None
             
-            # 포트폴리오 수익률을 시계열로 변환
-            portfolio_returns_series = pd.Series(portfolio_returns)
+            # 포트폴리오 수익률을 시계열로 변환 (날짜 인덱스 사용)
+            portfolio_returns_series = pd.Series(portfolio_returns, index=dates)
             
             # 벤치마크 수익률과 동기화
             benchmark_period_returns = self._align_benchmark_returns(
                 benchmark_returns, optimization_results['dates']
             )
+            # 벤치마크도 같은 인덱스 사용
+            benchmark_period_returns.index = dates
             
             if len(benchmark_period_returns) < 10:
                 logger.warning(f"Insufficient benchmark returns for {portfolio_type} beta calculation: {len(benchmark_period_returns)}")
                 return None
             
-            # 베타 계산 (회귀분석)
-            common_length = min(len(portfolio_returns_series), len(benchmark_period_returns))
-            portfolio_aligned = portfolio_returns_series.iloc[:common_length]
-            benchmark_aligned = benchmark_period_returns.iloc[:common_length]
+            # 베타 계산 (회귀분석) - 공통 인덱스 기반
+            common_index = portfolio_returns_series.index.intersection(benchmark_period_returns.index)
+            
+            if len(common_index) < 10:
+                logger.warning(f"Insufficient common data points for {portfolio_type} beta calculation: {len(common_index)}")
+                return None
+            
+            portfolio_aligned = portfolio_returns_series.loc[common_index]
+            benchmark_aligned = benchmark_period_returns.loc[common_index]
             
             slope, intercept, r_value, p_value, std_err = linregress(
                 benchmark_aligned.values, 
