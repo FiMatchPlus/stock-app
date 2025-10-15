@@ -16,17 +16,14 @@ from app.utils.logger import get_logger, log_api_request
 
 logger = get_logger(__name__)
 
-# 전역 병렬처리 서비스 인스턴스
 parallel_service = ParallelProcessingService()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """애플리케이션 생명주기 관리"""
-    # 시작 시 실행
     logger.info("서버 시작", version=settings.app_version)
     
-    # 스케줄러 시작
     try:
         scheduler_service.start()
         logger.info("스케줄러 서비스 시작 성공")
@@ -37,17 +34,14 @@ async def lifespan(app: FastAPI):
     
     yield
     
-    # 종료 시 실행
     logger.info("서버 종료")
     
-    # 스케줄러 중지
     try:
         scheduler_service.stop()
         logger.info("스케줄러 서비스 중지됨")
     except Exception as e:
         logger.error("스케줄러 서비스 중지 실패", error=str(e))
     
-    # 병렬처리 서비스 정리
     try:
         await parallel_service.cleanup()
         logger.info("병렬 처리 서비스 정리 완료")
@@ -55,7 +49,6 @@ async def lifespan(app: FastAPI):
         logger.error("병렬 처리 서비스 정리 실패", error=str(e))
 
 
-# FastAPI 애플리케이션 생성
 app = FastAPI(
     title=settings.app_name,
     version=settings.app_version,
@@ -65,12 +58,10 @@ app = FastAPI(
     redoc_url="/redoc" if settings.debug else None,
 )
 
-# CORS Preflight 요청 처리 미들웨어
 @app.middleware("http")
 async def handle_cors_preflight(request: Request, call_next):
     """CORS preflight 요청을 처리하는 미들웨어"""
     if request.method == "OPTIONS":
-        # Origin 헤더 확인
         origin = request.headers.get("origin", "*")
         
         return JSONResponse(
@@ -80,7 +71,7 @@ async def handle_cors_preflight(request: Request, call_next):
                 "Access-Control-Allow-Methods": "GET, POST, PUT, DELETE, OPTIONS, PATCH",
                 "Access-Control-Allow-Headers": "Content-Type, Authorization, X-Requested-With, Accept, Origin",
                 "Access-Control-Allow-Credentials": "true",
-                "Access-Control-Max-Age": "86400",  # 24시간
+                "Access-Control-Max-Age": "86400",
             }
         )
     
@@ -88,13 +79,11 @@ async def handle_cors_preflight(request: Request, call_next):
     return response
 
 
-# API 요청 로깅 미들웨어
 @app.middleware("http")
 async def log_requests(request: Request, call_next):
     """API 요청을 로깅 미들웨어"""
     start_time = time.time()
     
-    # 요청 로깅
     log_api_request(
         logger,
         method=request.method,
@@ -104,16 +93,13 @@ async def log_requests(request: Request, call_next):
         request_id=request.headers.get("x-request-id")
     )
     
-    # 요청 처리
     response = await call_next(request)
     
-    # 에러 응답에 CORS 헤더 추가
     if response.status_code >= 400:
         origin = request.headers.get("origin", "*")
         response.headers["Access-Control-Allow-Origin"] = origin
         response.headers["Access-Control-Allow-Credentials"] = "true"
     
-    # 응답 로깅
     process_time = time.time() - start_time
     logger.info(
         "API 응답",
@@ -126,7 +112,6 @@ async def log_requests(request: Request, call_next):
     
     return response
 
-# CORS 미들웨어 설정
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"] if settings.debug else ["http://localhost:3000"],
@@ -136,7 +121,6 @@ app.add_middleware(
 )
 
 
-# HTTPException 처리기
 @app.exception_handler(HTTPException)
 async def http_exception_handler(request, exc):
     """HTTPException 처리 - CORS 헤더 추가"""
@@ -147,18 +131,15 @@ async def http_exception_handler(request, exc):
         content={"detail": exc.detail}
     )
     
-    # CORS 헤더 추가
     response.headers["Access-Control-Allow-Origin"] = origin
     response.headers["Access-Control-Allow-Credentials"] = "true"
     
     return response
 
 
-# 전역 예외 처리기 (HTTPException은 제외)
 @app.exception_handler(Exception)
 async def global_exception_handler(request, exc):
     """전역 예외 처리 - HTTPException은 제외"""
-    # HTTPException은 이미 위에서 처리되므로 여기서는 제외
     if isinstance(exc, HTTPException):
         return await http_exception_handler(request, exc)
     
@@ -178,20 +159,17 @@ async def global_exception_handler(request, exc):
         }
     )
     
-    # CORS 헤더 추가
     response.headers["Access-Control-Allow-Origin"] = origin
     response.headers["Access-Control-Allow-Credentials"] = "true"
     
     return response
 
 
-# 라우터 등록
 app.include_router(stock_router)
 app.include_router(backtest_router)
 app.include_router(analysis_router)
 
 
-# 헬스 체크 엔드포인트
 @app.get("/health", tags=["health"])
 async def health_check():
     """헬스 체크"""
@@ -203,7 +181,6 @@ async def health_check():
     }
 
 
-# 루트 엔드포인트
 @app.get("/", tags=["root"])
 async def root():
     """루트 엔드포인트"""
@@ -215,7 +192,6 @@ async def root():
     }
 
 
-# 스케줄러 관련 엔드포인트
 @app.get("/scheduler/status", tags=["scheduler"])
 async def get_scheduler_status():
     """스케줄러 상태 조회"""

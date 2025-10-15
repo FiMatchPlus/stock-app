@@ -28,7 +28,6 @@ class BetaService:
                 logger.warning("개별 종목 베타 계산을 위한 벤치마크 데이터가 없음")
                 return None
             
-            # 최적화에 사용된 종목 목록 추출
             latest_weights = optimization_results['latest_weights']
             portfolio_stocks = set(latest_weights['min_downside_risk'].keys()) | set(latest_weights['max_sortino'].keys())
             
@@ -36,7 +35,6 @@ class BetaService:
                 logger.warning("베타 계산을 위한 포트폴리오 종목을 찾을 수 없음")
                 return None
             
-            # 최근 윈도우의 기대수익률과 공분산 데이터 추출
             latest_expected_returns = optimization_results['expected_returns'][-1] if optimization_results['expected_returns'] else {}
             latest_covariances = optimization_results['covariances'][-1] if optimization_results['covariances'] else {}
             
@@ -44,11 +42,9 @@ class BetaService:
             
             for stock_code in portfolio_stocks:
                 try:
-                    # 기대수익률과 변동성 추출
                     expected_return = latest_expected_returns.get(stock_code, 0.0)
                     volatility = np.sqrt(latest_covariances.get(stock_code, {}).get(stock_code, 0.0))
                     
-                    # 포트폴리오와의 상관관계 계산 (최대 소르티노 포트폴리오 기준)
                     max_sortino_weights = latest_weights['max_sortino']
                     portfolio_variance = 0.0
                     stock_portfolio_covariance = 0.0
@@ -64,25 +60,20 @@ class BetaService:
                                 if other_stock2 in latest_covariances.get(other_stock, {}):
                                     portfolio_variance += weight * weight2 * latest_covariances.get(other_stock, {}).get(other_stock2, 0.0)
                     
-                    # 상관관계 계산
                     portfolio_std = np.sqrt(portfolio_variance) if portfolio_variance > 0 else 1.0
                     correlation_to_portfolio = stock_portfolio_covariance / (volatility * portfolio_std) if volatility > 0 and portfolio_std > 0 else 0.0
                     
-                    # 베타 분석 계산
                     beta_analysis = None
                     if prices_df is not None and stock_code in prices_df.columns:
                         try:
-                            # 종목 수익률 계산
                             stock_prices = prices_df[stock_code].dropna()
                             stock_returns = stock_prices.pct_change().dropna()
                             
-                            # 벤치마크와 공통 기간 찾기
                             common_dates = stock_returns.index.intersection(benchmark_returns.index)
-                            if len(common_dates) >= 10:  # 최소 10개 데이터 포인트
+                            if len(common_dates) >= 10:
                                 stock_returns_aligned = stock_returns.loc[common_dates]
                                 benchmark_returns_aligned = benchmark_returns.loc[common_dates]
                                 
-                                # 회귀분석으로 베타 계산
                                 slope, intercept, r_value, p_value, std_err = linregress(
                                     benchmark_returns_aligned.values, 
                                     stock_returns_aligned.values
@@ -91,7 +82,7 @@ class BetaService:
                                 beta_analysis = BetaAnalysis(
                                     beta=float(slope),
                                     r_square=float(r_value ** 2),
-                                    alpha=float(intercept) * 252  # 연환산
+                                    alpha=float(intercept) * 252
                                 )
                                 
                                 logger.debug(f"{stock_code} 베타 분석 계산 완료: beta={slope:.4f}, r²={r_value**2:.4f}")
@@ -102,7 +93,6 @@ class BetaService:
                             logger.error(f"{stock_code} 베타 계산 오류: {str(e)}")
                             beta_analysis = self._get_default_beta_analysis()
                     else:
-                        # 가격 데이터가 없는 경우 기본값 사용
                         beta_analysis = self._get_default_beta_analysis()
                     
                     stock_detail = StockDetails(
@@ -138,7 +128,6 @@ class BetaService:
                 logger.warning("포트폴리오 베타 계산을 위한 벤치마크 데이터가 없음")
                 return None
             
-            # 백테스팅 기간의 포트폴리오 수익률 추출 (최대 소르티노 포트폴리오 기준, 날짜 인덱스 포함)
             portfolio_returns = [r['max_sortino'] for r in optimization_results['portfolio_returns']]
             dates = optimization_results['dates']
             
@@ -146,21 +135,17 @@ class BetaService:
                 logger.warning(f"베타 계산을 위한 포트폴리오 수익률 데이터 부족: {len(portfolio_returns)}")
                 return None
             
-            # 포트폴리오 수익률을 시계열로 변환 (날짜 인덱스 사용)
             portfolio_returns_series = pd.Series(portfolio_returns, index=dates)
             
-            # 벤치마크 수익률과 동기화
             benchmark_period_returns = self._align_benchmark_returns(
                 benchmark_returns, optimization_results['dates']
             )
-            # 벤치마크도 같은 인덱스 사용
             benchmark_period_returns.index = dates
             
             if len(benchmark_period_returns) < 10:
                 logger.warning(f"베타 계산을 위한 벤치마크 수익률 데이터 부족: {len(benchmark_period_returns)}")
                 return None
             
-            # 베타 계산 (회귀분석) - 공통 인덱스 기반
             common_index = portfolio_returns_series.index.intersection(benchmark_period_returns.index)
             
             if len(common_index) < 10:
@@ -175,11 +160,10 @@ class BetaService:
                 portfolio_aligned.values
             )
             
-            # 베타 분석 정보 생성
             portfolio_beta_analysis = BetaAnalysis(
                 beta=float(slope),
                 r_square=float(r_value ** 2),
-                alpha=float(intercept) * 252  # 연환산
+                alpha=float(intercept) * 252
             )
             
             logger.info(f"포트폴리오 베타 분석 계산 완료: beta={slope:.4f}, r²={r_value**2:.4f}, alpha={intercept*252:.4f}")
@@ -203,7 +187,6 @@ class BetaService:
                 logger.warning(f"{portfolio_type} 베타 계산을 위한 벤치마크 데이터가 없음")
                 return None
             
-            # 백테스팅 기간의 포트폴리오 수익률 추출 (날짜 인덱스 포함)
             portfolio_returns = [r[portfolio_type] for r in optimization_results['portfolio_returns']]
             dates = optimization_results['dates']
             
@@ -211,21 +194,17 @@ class BetaService:
                 logger.warning(f"{portfolio_type} 베타 계산을 위한 포트폴리오 수익률 데이터 부족: {len(portfolio_returns)}")
                 return None
             
-            # 포트폴리오 수익률을 시계열로 변환 (날짜 인덱스 사용)
             portfolio_returns_series = pd.Series(portfolio_returns, index=dates)
             
-            # 벤치마크 수익률과 동기화
             benchmark_period_returns = self._align_benchmark_returns(
                 benchmark_returns, optimization_results['dates']
             )
-            # 벤치마크도 같은 인덱스 사용
             benchmark_period_returns.index = dates
             
             if len(benchmark_period_returns) < 10:
                 logger.warning(f"{portfolio_type} 베타 계산을 위한 벤치마크 수익률 데이터 부족: {len(benchmark_period_returns)}")
                 return None
             
-            # 베타 계산 (회귀분석) - 공통 인덱스 기반
             common_index = portfolio_returns_series.index.intersection(benchmark_period_returns.index)
             
             if len(common_index) < 10:
@@ -240,11 +219,10 @@ class BetaService:
                 portfolio_aligned.values
             )
             
-            # 베타 분석 정보 생성
             portfolio_beta_analysis = BetaAnalysis(
                 beta=float(slope),
                 r_square=float(r_value ** 2),
-                alpha=float(intercept) * 252  # 연환산
+                alpha=float(intercept) * 252
             )
             
             logger.info(f"{portfolio_type} 베타 분석 계산 완료: beta={slope:.4f}, r²={r_value**2:.4f}, alpha={intercept*252:.4f}")
@@ -267,16 +245,12 @@ class BetaService:
                 logger.warning("사용자 포트폴리오 베타 계산을 위한 벤치마크 데이터 또는 보유 종목이 없음")
                 return None
             
-            # 사용자 포트폴리오 구성
             user_weights = {}
             total_value = sum(h.quantity for h in request.holdings)
             
             for holding in request.holdings:
                 user_weights[holding.code] = holding.quantity / total_value
             
-            # 사용자 포트폴리오 수익률 계산 (간소화)
-            # 실제로는 가격 데이터를 로드해서 계산해야 하지만, 
-            # 여기서는 기본값 반환
             logger.info(f"{len(user_weights)}개 종목에 대한 사용자 포트폴리오 베타 계산 요청됨")
             
             return BetaAnalysis(

@@ -47,7 +47,6 @@ class BenchmarkRepository(BaseRepository[BenchmarkPrice]):
                 logger.warning(f"{start_date}와 {end_date} 사이에 {index_codes}의 벤치마크 데이터를 찾을 수 없음")
                 return pd.DataFrame()
 
-            # DataFrame으로 변환
             data = []
             for price in benchmark_prices:
                 data.append({
@@ -98,11 +97,9 @@ class BenchmarkRepository(BaseRepository[BenchmarkPrice]):
             if df.empty:
                 return pd.Series(dtype=float)
             
-            # 벤치마크별로 수익률 계산
             df = df[df['index_code'] == index_code].sort_values('datetime')
             df['returns'] = df['close_price'].pct_change().fillna(0)
             
-            # 날짜를 인덱스로 하는 수익률 시리즈 반환
             returns_series = pd.Series(
                 data=df['returns'].values,
                 index=df['datetime'],

@@ -58,18 +58,15 @@ class BaseRepository(Generic[ModelType]):
         """다중 객체 조회"""
         query = select(self.model)
         
-        # 필터 적용
         if filters:
             for field_name, value in filters.items():
                 field = getattr(self.model, field_name)
                 query = query.where(field == value)
         
-        # 정렬 적용
         if order_by:
             field = getattr(self.model, order_by)
             query = query.order_by(field)
         
-        # 페이징 적용
         query = query.offset(skip).limit(limit)
         
         result = await self.session.execute(query)

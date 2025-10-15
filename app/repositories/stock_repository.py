@@ -56,11 +56,9 @@ class StockRepository(BaseRepository[Stock]):
     
     async def upsert_stock(self, stock_data: Dict[str, Any]) -> Stock:
         """종목 정보 UPSERT (중복 시 업데이트)"""
-        # 기존 종목 확인
         existing_stock = await self.get_by_ticker(stock_data.get("ticker"))
         
         if existing_stock:
-            # 업데이트
             for field, value in stock_data.items():
                 if hasattr(existing_stock, field):
                     setattr(existing_stock, field, value)
@@ -68,7 +66,6 @@ class StockRepository(BaseRepository[Stock]):
             await self.session.refresh(existing_stock)
             return existing_stock
         else:
-            # 생성
             return await self.create(stock_data)
     
     async def get_stocks_by_tickers(self, tickers: List[str]) -> List[Stock]:

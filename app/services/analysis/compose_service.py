@@ -28,14 +28,12 @@ class ComposeService:
         portfolios = []
         latest_weights = optimization_results['latest_weights']
         
-        # DEBUG: 실제 전송될 weights 로깅
         logger.info(
             "콜백을 위한 포트폴리오 비중 준비 중",
             min_downside_risk_weights=latest_weights.get('min_downside_risk', {}),
             max_sortino_weights=latest_weights.get('max_sortino', {})
         )
         
-        # 1. 사용자 포트폴리오
         user_weights = self._calculate_user_weights(request, prices_df)
         user_beta = await self._calculate_user_portfolio_beta(
             request, benchmark_returns, analysis_start, analysis_end
@@ -65,7 +63,6 @@ class ComposeService:
             benchmark_comparison=user_benchmark_comparison
         ))
         
-        # 2. 최소 하방위험 포트폴리오 (Min Downside Risk)
         min_var_beta = await self._calculate_portfolio_beta_for_weights(
             optimization_results, benchmark_returns, analysis_start, analysis_end, "min_downside_risk"
         )
@@ -81,7 +78,6 @@ class ComposeService:
             benchmark_comparison=min_var_benchmark_comparison
         ))
         
-        # 3. 최대소르티노 포트폴리오
         max_sortino_beta = await self._calculate_portfolio_beta_for_weights(
             optimization_results, benchmark_returns, analysis_start, analysis_end, "max_sortino"
         )
@@ -110,22 +106,18 @@ class ComposeService:
             종목코드별 비중 딕셔너리 (평가액 기준)
         """
         if prices_df is None or prices_df.empty:
-            # 가격 데이터가 없으면 수량 기반으로 폴백
             logger.warning("사용자 비중 계산을 위한 가격 데이터가 없음, 수량 기반 비중 사용")
             total_qty = sum(h.quantity for h in request.holdings)
             return {h.code: h.quantity / total_qty for h in request.holdings} if total_qty > 0 else {}
         
-        # 최신 가격 사용 (마지막 거래일)
         latest_prices = prices_df.iloc[-1]
         
-        # 각 종목의 평가액 계산
         holdings_value = {}
         total_value = 0.0
         
         for h in request.holdings:
             if h.code in latest_prices:
                 price = latest_prices[h.code]
-                # NaN 체크 추가
                 if pd.isna(price):
                     logger.warning(f"종목 {h.code}의 가격이 NaN, 비중 계산에서 제외")
                     continue
@@ -135,14 +127,12 @@ class ComposeService:
             else:
                 logger.warning(f"종목 {h.code}의 가격 데이터가 없음, 비중 계산에서 제외")
         
-        # 비중 계산
         if total_value <= 0 or pd.isna(total_value):
             logger.warning(f"총 포트폴리오 가치가 유효하지 않음: {total_value}")
             return {}
         
         weights = {code: value / total_value for code, value in holdings_value.items()}
         
-        # DEBUG: 사용자 비중 계산 로깅
         logger.info(
             "사용자 포트폴리오 비중 계산 완료",
             holdings_value=holdings_value,
@@ -170,7 +160,6 @@ class ComposeService:
             if not available:
                 return None
             
-            # 최신 가격으로 평가액 기반 비중 계산
             latest_prices = prices_df[available].iloc[-1]
             holdings_value = {}
             total_value = 0.0
@@ -178,7 +167,6 @@ class ComposeService:
             for h in request.holdings:
                 if h.code in available and h.code in latest_prices:
                     price = latest_prices[h.code]
-                    # NaN 체크 추가
                     if pd.isna(price):
                         logger.warning(f"메트릭 계산에서 종목 {h.code}의 가격이 NaN, 제외")
                         continue
@@ -190,7 +178,6 @@ class ComposeService:
                 logger.warning(f"메트릭 계산에서 총 포트폴리오 가치가 유효하지 않음: {total_value}")
                 return None
             
-            # 평가액 기반 비중
             weights = {code: value / total_value for code, value in holdings_value.items()}
             
             returns_df = prices_df[available].pct_change().dropna()

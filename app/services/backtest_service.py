@@ -9,7 +9,6 @@ from app.models.schemas import BacktestRequest, BacktestResponse
 from app.exceptions import MissingStockPriceDataException, InsufficientDataException
 from app.utils.logger import get_logger
 
-# Service imports
 from app.services.backtest.data_service import BacktestDataService
 from app.services.backtest.calculation_service import BacktestCalculationService
 from app.services.backtest.metrics_service import BacktestMetricsService
@@ -56,7 +55,6 @@ class BacktestService(
         except Exception as e:
             if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
                 logger.warning(f"Primary session failed for {service_name}, retrying with fresh session", error=str(e))
-                # 새 독립 세션으로 재시도
                 from app.models.database import AsyncSessionLocal
                 async with AsyncSessionLocal() as new_session:
                     return await operation_func(new_session, **kwargs)
@@ -73,11 +71,9 @@ class BacktestService(
         start_time = time.time()
         
         try:
-            # 1. 입력 검증 및 데이터 준비
             logger.info(f"Starting backtest for {len(request.holdings)} holdings", 
                        start=request.start.isoformat(), end=request.end.isoformat())
             
-            # 2. 주가 데이터 조회 (캐싱 활용)
             if session is None:
                 raise ValueError("Session is required for stock price data retrieval")
             stock_prices = await self._get_stock_prices_optimized(
@@ -85,7 +81,6 @@ class BacktestService(
             )
             
             if stock_prices is None or stock_prices.empty:
-                # 모든 종목의 데이터가 없는 경우
                 missing_stocks = []
                 for holding in request.holdings:
                     missing_stocks.append({
@@ -102,26 +97,21 @@ class BacktestService(
                     total_stocks=len(request.holdings)
                 )
             
-            # 3. 백테스트 실행
             portfolio_data, result_summary, execution_logs, final_status, benchmark_info, actual_start, actual_end = await self._execute_backtest(
                 request, stock_prices, session
             )
             
-            # 4. 성과 지표 계산
             metrics = await self._calculate_metrics(result_summary)
             
-            # 5. 벤치마크 지표 계산
             benchmark_metrics = await self._calculate_benchmark_metrics(
                 request, result_summary, session
             )
             
-            # 무위험 수익률 정보 (이미 벤치마크 실행 시 조회됨)
             risk_free_rate_info = {
                 'rate_type': 'AUTO',
                 'source': 'backtest_execution'
             }
             
-            # 6. 포트폴리오 스냅샷 생성
             portfolio_snapshot = self._create_portfolio_snapshot_response(
                 request, 
                 portfolio_data, 
@@ -130,10 +120,8 @@ class BacktestService(
                 actual_end
             )
             
-            # 실행 시간 계산
             execution_time = time.time() - start_time
             
-            # 7. 응답 구성
             response = BacktestResponse(
                 portfolio_snapshot=portfolio_snapshot,
                 metrics=metrics,

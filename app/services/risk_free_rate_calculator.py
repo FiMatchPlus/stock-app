@@ -34,25 +34,21 @@ class RiskFreeRateCalculator:
             float: 무위험수익률 (연환산)
         """
         try:
-            # 1. 사용자가 직접 지정한 경우
             if user_risk_free_rate is not None:
                 logger.info(f"Using user-specified risk-free rate: {user_risk_free_rate}")
                 return user_risk_free_rate
             
-            # 2. 분석 기간 길이에 따른 국고채 선택
             rate_type = self._select_treasury_bond_type(analysis_start, analysis_end)
             logger.info(f"Selected treasury bond type: {rate_type} for analysis period: {(analysis_end - analysis_start).days} days")
             
-            # 3. 해당 기간의 국고채 수익률 조회
             annual_rates = await self._get_treasury_daily_returns(rate_type, analysis_start, analysis_end)
             
             if not annual_rates:
                 logger.warning(f"No treasury data available for {rate_type}, using default 0.0")
                 return 0.0
             
-            # 4. 평균 연율(%)을 계산하고 소수로 변환
-            average_rate_pct = sum(annual_rates) / len(annual_rates)  # 예: 3.26 (%)
-            annualized_rate = average_rate_pct / 100  # 예: 0.0326 (3.26%)
+            average_rate_pct = sum(annual_rates) / len(annual_rates)
+            annualized_rate = average_rate_pct / 100
             
             logger.info(f"Calculated risk-free rate: {annualized_rate:.4f} ({average_rate_pct:.2f}% from {len(annual_rates)} data points)")
             return annualized_rate
@@ -73,11 +69,11 @@ class RiskFreeRateCalculator:
         """
         analysis_days = (end - start).days
         
-        if analysis_days < 365:  # 1년 미만
+        if analysis_days < 365:
             return "TB1Y"
-        elif analysis_days < 1095:  # 3년 미만
+        elif analysis_days < 1095:
             return "TB3Y"
-        else:  # 3년 이상
+        else:
             return "TB5Y"
     
     async def _get_treasury_daily_returns(

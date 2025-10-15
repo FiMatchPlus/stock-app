@@ -30,17 +30,14 @@ class BacktestAnalysisService:
         if not portfolio_data:
             raise ValueError("포트폴리오 데이터가 없습니다.")
         
-        # 포트폴리오 ID 생성 (없는 경우)
         if portfolio_id is None:
             portfolio_id = int(time.time())
         
-        # 최종 포트폴리오 값
         final_data = portfolio_data[-1]
         initial_data = portfolio_data[0]
         base_value = Decimal(str(initial_data['portfolio_value']))
         current_value = Decimal(str(final_data['portfolio_value']))
         
-        # 보유 종목 정보 생성
         holdings = []
         for i, holding in enumerate(request.holdings):
             holdings.append(HoldingSnapshotResponse(
@@ -49,20 +46,18 @@ class BacktestAnalysisService:
                 quantity=holding.quantity
             ))
         
-        # 실제 거래일 사용 (없으면 원래 요청 날짜 사용)
         effective_start = actual_start if actual_start else request.start
         effective_end = actual_end if actual_end else request.end
         
-        # 포트폴리오 스냅샷 응답 생성
         return PortfolioSnapshotResponse(
-            id=12345,  # 고정 ID (실제 DB 저장하지 않음)
+            id=12345,
             portfolio_id=portfolio_id,
             base_value=base_value,
             current_value=current_value,
             start_at=effective_start,
             end_at=effective_end,
             created_at=datetime.utcnow(),
-            execution_time=0.0,  # 나중에 설정됨
+            execution_time=0.0,
             holdings=holdings
         )
 
@@ -78,24 +73,19 @@ class BacktestAnalysisService:
         from app.repositories.benchmark_repository import BenchmarkRepository
         from app.repositories.risk_free_rate_repository import RiskFreeRateRepository
         
-        # Repository 초기화
         benchmark_repo = BenchmarkRepository(session)
         risk_free_repo = RiskFreeRateRepository(session)
         
-        # 분석 기간
         start_date = portfolio_returns.index[0]
         end_date = portfolio_returns.index[-1]
         
-        # 벤치마크 수익률 조회
         benchmark_returns = await benchmark_repo.get_benchmark_returns_series(
             benchmark_code, start_date, end_date
         )
         
-        # 무위험수익률 조회
         if risk_free_rate is None:
             risk_free_rate = await risk_free_repo.get_risk_free_rate("CD91", end_date) or 0.0
         
-        # 시계열 동기화
         if not benchmark_returns.empty:
             common_dates = portfolio_returns.index.intersection(benchmark_returns.index)
             portfolio_synced = portfolio_returns.loc[common_dates]
@@ -104,14 +94,11 @@ class BacktestAnalysisService:
             portfolio_synced = portfolio_returns
             benchmark_synced = pd.Series(dtype=float)
         
-        # AnalysisService의 고급 계산 메서드 활용
         analysis_service = AnalysisService()
         
-        # 기본 통계
         annual_return = portfolio_synced.mean() * 252
         annual_volatility = portfolio_synced.std() * np.sqrt(252)
         
-        # 고급 지표들
         sharpe = (annual_return - risk_free_rate) / annual_volatility if annual_volatility > 0 else 0.0
         
         max_dd = analysis_service._calculate_max_drawdown(portfolio_synced)
@@ -130,7 +117,6 @@ class BacktestAnalysisService:
             'risk_free_rate_used': float(risk_free_rate)
         }
         
-        # 벤치마크 비교 (있는 경우)
         if not benchmark_synced.empty:
             beta, alpha, correlation = analysis_service._calculate_beta_alpha(
                 portfolio_synced, benchmark_synced, risk_free_rate
@@ -143,7 +129,7 @@ class BacktestAnalysisService:
             metrics.update({
                 'beta': float(beta),
                 'alpha': float(alpha),
-                'jensen_alpha': float(alpha),  # 이 경우 alpha와 jensen_alpha가 동일
+                'jensen_alpha': float(alpha),
                 'tracking_error': float(tracking_error),
                 'correlation_with_benchmark': float(correlation),
                 'benchmark_annual_return': float(benchmark_annual_return),

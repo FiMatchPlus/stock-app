@@ -31,7 +31,6 @@ async def collect_stock_prices_by_symbol(
     session: AsyncSession = Depends(get_async_session)
 ):
     """특정 종목의 주가 데이터 수집"""
-    # API 요청 로그
     log_api_request(
         logger, 
         method="POST", 
@@ -43,17 +42,14 @@ async def collect_stock_prices_by_symbol(
     )
     
     try:
-        # 시간간격 검증
         if interval not in ["1d"]:
             raise HTTPException(
                 status_code=400,
                 detail="Invalid interval."
             )
         
-        # 서비스 초기화
         stock_price_service = StockPriceService(session)
         
-        # 수집 요청 생성
         collection_request = StockPriceCollectionRequest(
             symbols=[symbol],
             interval=interval,
@@ -61,7 +57,6 @@ async def collect_stock_prices_by_symbol(
             end_date=end_date
         )
         
-        # 데이터 수집
         result = await stock_price_service.collect_stock_prices(collection_request)
         
         logger.info(
@@ -99,7 +94,6 @@ async def collect_daily_prices_by_date(
     session: AsyncSession = Depends(get_async_session)
 ):
     """특정 날짜의 일봉 데이터 수집"""
-    # API 요청 로그
     log_api_request(
         logger, 
         method="POST", 
@@ -108,18 +102,15 @@ async def collect_daily_prices_by_date(
     )
     
     try:
-        # 서비스 초기화
         stock_price_service = StockPriceService(session)
         
-        # 수집 요청 생성 (일봉 데이터)
         collection_request = StockPriceCollectionRequest(
-            symbols=[],  # 빈 리스트는 전체 종목을 의미
+            symbols=[],
             interval="1d",
             start_date=date,
             end_date=date
         )
         
-        # 데이터 수집
         result = await stock_price_service.collect_stock_prices(collection_request)
         
         total_count = sum(len(prices) for prices in result.values())
@@ -158,17 +149,14 @@ async def collect_stock_prices_batch(
 ):
     """배치 주가 데이터 수집"""
     try:
-        # 최대 100개 종목 제한
         if len(request.symbols) > 100:
             raise HTTPException(
                 status_code=400,
                 detail="Maximum 100 symbols allowed per batch"
             )
         
-        # 서비스 초기화
         stock_price_service = StockPriceService(session)
         
-        # 데이터 수집
         result = await stock_price_service.collect_stock_prices(request)
         
         total_count = sum(len(prices) for prices in result.values())

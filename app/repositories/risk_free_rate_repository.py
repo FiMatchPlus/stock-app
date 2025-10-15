@@ -30,7 +30,6 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
             if target_date is None:
                 target_date = datetime.utcnow()
 
-            # 해당 날짜 또는 그 이전 가장 최근 데이터 조회
             stmt = (
                 select(RiskFreeRate)
                 .where(
@@ -47,7 +46,6 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
             rate_data = result.scalar_one_or_none()
             
             if rate_data:
-                # 연율 기준 금리를 소수로 변환 (예: 3.25% -> 0.0325)
                 return float(rate_data.rate) / 100.0
             
             logger.warning(f"{target_date} 또는 그 이전의 {rate_type} 무위험수익률을 찾을 수 없음")
@@ -84,12 +82,11 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
                 logger.warning(f"{start_date}와 {end_date} 사이의 {rate_type} 무위험수익률 시리즈를 찾을 수 없음")
                 return pd.Series(dtype=float)
 
-            # DataFrame으로 변환 후 시계열 생성
             data = []
             for rate in rate_data:
                 data.append({
                     'datetime': rate.datetime,
-                    'rate': float(rate.rate) / 100.0,  # 연율 기준을 소수로 변환
+                    'rate': float(rate.rate) / 100.0,
                     'daily_rate': float(rate.daily_rate) if rate.daily_rate else 0.0
                 })
 
@@ -97,7 +94,6 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
             df['datetime'] = pd.to_datetime(df['datetime'])
             df = df.sort_values('datetime')
             
-            # 날짜를 인덱스로 하는 시리즈 반환
             rate_series = pd.Series(
                 data=df['rate'].values,
                 index=df['datetime'],
@@ -129,16 +125,12 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
     ) -> pd.Series:
         """누락된 날짜의 금리를 보간하여 시계열 생성"""
         try:
-            # 날짜 인덱스로 리인덱싱
             complete_series = rate_series.reindex(target_dates)
             
-            # 전진 채우기로 누락 데이터 보간
             complete_series = complete_series.fillna(method='ffill')
             
-            # 시작 부분에 여전히 NaN이 있으면 후진 채우기
             complete_series = complete_series.fillna(method='bfill')
             
-            # 여전히 NaN이 있으면 0으로 채우기
             complete_series = complete_series.fillna(0.0)
             
             logger.info(f"무위험수익률 시리즈를 {len(complete_series)}개 관측치로 보간 완료")
