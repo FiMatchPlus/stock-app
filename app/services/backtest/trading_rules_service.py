@@ -115,8 +115,14 @@ class TradingRulesService:
                     continue
                 
                 if should_trigger:
+                    if date and isinstance(date, datetime):
+                        date_str = date.isoformat()
+                    else:
+                        date_str = datetime.now().isoformat()
+                        logger.warning(f"Invalid date parameter in stop loss rule: {date}, using current time")
+                    
                     execution_logs.append(ExecutionLog(
-                        date=date.isoformat(),
+                        date=date_str,
                         action="STOP_LOSS",
                         category=rule.category,
                         value=value,
@@ -160,8 +166,14 @@ class TradingRulesService:
                     continue
                 
                 if should_trigger:
+                    if date and isinstance(date, datetime):
+                        date_str = date.isoformat()
+                    else:
+                        date_str = datetime.now().isoformat()
+                        logger.warning(f"Invalid date parameter in take profit rule: {date}, using current time")
+                    
                     execution_logs.append(ExecutionLog(
-                        date=date.isoformat(),
+                        date=date_str,
                         action="TAKE_PROFIT",
                         category=rule.category,
                         value=value,
