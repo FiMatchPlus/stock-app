@@ -30,7 +30,7 @@ class ComposeService:
         
         # DEBUG: 실제 전송될 weights 로깅
         logger.info(
-            "Portfolio weights being prepared for callback",
+            "콜백을 위한 포트폴리오 비중 준비 중",
             min_downside_risk_weights=latest_weights.get('min_downside_risk', {}),
             max_sortino_weights=latest_weights.get('max_sortino', {})
         )
@@ -111,7 +111,7 @@ class ComposeService:
         """
         if prices_df is None or prices_df.empty:
             # 가격 데이터가 없으면 수량 기반으로 폴백
-            logger.warning("No price data available for user weights calculation, using quantity-based weights")
+            logger.warning("사용자 비중 계산을 위한 가격 데이터가 없음, 수량 기반 비중 사용")
             total_qty = sum(h.quantity for h in request.holdings)
             return {h.code: h.quantity / total_qty for h in request.holdings} if total_qty > 0 else {}
         
@@ -127,24 +127,24 @@ class ComposeService:
                 price = latest_prices[h.code]
                 # NaN 체크 추가
                 if pd.isna(price):
-                    logger.warning(f"Price is NaN for stock {h.code}, excluding from weight calculation")
+                    logger.warning(f"종목 {h.code}의 가격이 NaN, 비중 계산에서 제외")
                     continue
                 value = h.quantity * price
                 holdings_value[h.code] = value
                 total_value += value
             else:
-                logger.warning(f"No price data for stock {h.code}, excluding from weight calculation")
+                logger.warning(f"종목 {h.code}의 가격 데이터가 없음, 비중 계산에서 제외")
         
         # 비중 계산
         if total_value <= 0 or pd.isna(total_value):
-            logger.warning(f"Total portfolio value is invalid: {total_value}")
+            logger.warning(f"총 포트폴리오 가치가 유효하지 않음: {total_value}")
             return {}
         
         weights = {code: value / total_value for code, value in holdings_value.items()}
         
         # DEBUG: 사용자 비중 계산 로깅
         logger.info(
-            "User portfolio weights calculated",
+            "사용자 포트폴리오 비중 계산 완료",
             holdings_value=holdings_value,
             total_value=total_value,
             weights=weights
@@ -180,14 +180,14 @@ class ComposeService:
                     price = latest_prices[h.code]
                     # NaN 체크 추가
                     if pd.isna(price):
-                        logger.warning(f"Price is NaN for stock {h.code} in metrics calculation, excluding")
+                        logger.warning(f"메트릭 계산에서 종목 {h.code}의 가격이 NaN, 제외")
                         continue
                     value = h.quantity * price
                     holdings_value[h.code] = value
                     total_value += value
             
             if total_value <= 0 or pd.isna(total_value):
-                logger.warning(f"Total portfolio value is invalid in metrics calculation: {total_value}")
+                logger.warning(f"메트릭 계산에서 총 포트폴리오 가치가 유효하지 않음: {total_value}")
                 return None
             
             # 평가액 기반 비중
@@ -208,6 +208,6 @@ class ComposeService:
                 port_aligned, bench_aligned, risk_free_rate, "User", None
             )
         except Exception as e:
-            logger.error(f"Error calculating user portfolio metrics: {str(e)}")
+            logger.error(f"사용자 포트폴리오 메트릭 계산 오류: {str(e)}")
             return None
 

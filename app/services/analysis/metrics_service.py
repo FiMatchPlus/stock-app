@@ -21,7 +21,7 @@ class MetricsService:
     ) -> Dict[str, Any]:
         """백테스팅 기반 성능 지표 계산"""
         
-        logger.info("Calculating backtest metrics")
+        logger.info("백테스트 메트릭 계산 중")
         
         # 포트폴리오 수익률 시계열 추출 (날짜 인덱스 포함)
         mv_returns = [r['min_downside_risk'] for r in optimization_results['portfolio_returns']]
@@ -167,7 +167,7 @@ class MetricsService:
             common_index = portfolio_excess.index.intersection(benchmark_excess.index)
             
             if len(common_index) < 10:  # 최소 10개 데이터 포인트 필요
-                logger.warning(f"Insufficient data points for regression: {len(common_index)}")
+                logger.warning(f"회귀분석을 위한 데이터 포인트 부족: {len(common_index)}")
                 return 1.0, 0.0, 0.0
             
             # 공통 데이터 추출
@@ -184,15 +184,15 @@ class MetricsService:
             
             # 유효성 검증
             if np.isnan(beta) or np.isinf(beta):
-                logger.warning(f"Invalid beta value: {beta}")
+                logger.warning(f"유효하지 않은 베타 값: {beta}")
                 return 1.0, 0.0, 0.0
             
-            logger.debug(f"Portfolio beta calculated: beta={beta:.4f}, alpha={alpha:.4f}, r²={r_value**2:.4f}")
+            logger.debug(f"포트폴리오 베타 계산 완료: beta={beta:.4f}, alpha={alpha:.4f}, r²={r_value**2:.4f}")
             
             return beta, alpha, correlation
             
         except Exception as e:
-            logger.error(f"Error calculating beta/alpha: {str(e)}")
+            logger.error(f"베타/알파 계산 오류: {str(e)}")
             return 1.0, 0.0, 0.0
 
     def _calculate_tracking_error(self, portfolio_returns: pd.Series, benchmark_returns: pd.Series) -> float:
@@ -202,7 +202,7 @@ class MetricsService:
             tracking_error = excess_returns.std() * np.sqrt(252)  # 연환산
             return float(tracking_error)
         except Exception as e:
-            logger.error(f"Error calculating tracking error: {str(e)}")
+            logger.error(f"트래킹 에러 계산 오류: {str(e)}")
             return 0.0
 
     def _calculate_upside_downside_beta(
@@ -230,7 +230,7 @@ class MetricsService:
             return float(upside_beta), float(downside_beta)
             
         except Exception as e:
-            logger.error(f"Error calculating upside/downside beta: {str(e)}")
+            logger.error(f"상승/하락 베타 계산 오류: {str(e)}")
             return 1.0, 1.0
 
     def _calculate_downside_deviation(self, returns: pd.Series, target_return: float = 0.0) -> float:
@@ -245,7 +245,7 @@ class MetricsService:
             downside_deviation = downside_returns.std(ddof=0) * np.sqrt(252)
             return float(downside_deviation)
         except Exception as e:
-            logger.error(f"Error calculating downside deviation: {str(e)}")
+            logger.error(f"하방편차 계산 오류: {str(e)}")
             return 0.0
 
     def _calculate_max_drawdown(self, returns: pd.Series) -> float:
@@ -256,7 +256,7 @@ class MetricsService:
             drawdown = (cumulative - running_max) / running_max
             return float(drawdown.min())
         except Exception as e:
-            logger.error(f"Error calculating max drawdown: {str(e)}")
+            logger.error(f"최대 낙폭 계산 오류: {str(e)}")
             return 0.0
 
     def _calculate_var_cvar(self, returns: pd.Series) -> Tuple[float, float]:
@@ -290,7 +290,7 @@ class MetricsService:
             return var_value, cvar_value
             
         except Exception as e:
-            logger.error(f"Error calculating VaR/CVaR: {str(e)}")
+            logger.error(f"VaR/CVaR 계산 오류: {str(e)}")
             return 0.0, 0.0
 
     def _calculate_window_averaged_var_cvar(
@@ -334,6 +334,6 @@ class MetricsService:
             return weighted_var, weighted_cvar
             
         except Exception as e:
-            logger.error(f"Error calculating EWMA-weighted VaR/CVaR: {str(e)}")
+            logger.error(f"EWMA 가중 VaR/CVaR 계산 오류: {str(e)}")
             return 0.0, 0.0
 

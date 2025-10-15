@@ -44,7 +44,7 @@ class BenchmarkRepository(BaseRepository[BenchmarkPrice]):
             benchmark_prices = result.scalars().all()
             
             if not benchmark_prices:
-                logger.warning(f"No benchmark data found for {index_codes} between {start_date} and {end_date}")
+                logger.warning(f"{start_date}와 {end_date} 사이에 {index_codes}의 벤치마크 데이터를 찾을 수 없음")
                 return pd.DataFrame()
 
             # DataFrame으로 변환
@@ -67,11 +67,11 @@ class BenchmarkRepository(BaseRepository[BenchmarkPrice]):
             df = pd.DataFrame(data)
             df['datetime'] = pd.to_datetime(df['datetime'])
             
-            logger.info(f"Retrieved {len(df)} benchmark price records for {len(index_codes)} indices")
+            logger.info(f"{len(index_codes)}개 지수에 대해 {len(df)}개 벤치마크 가격 레코드 조회 완료")
             return df
 
         except Exception as e:
-            logger.error(f"Error retrieving benchmark prices: {str(e)}")
+            logger.error(f"벤치마크 가격 조회 오류: {str(e)}")
             raise
 
     async def get_available_benchmarks(self) -> List[str]:
@@ -82,7 +82,7 @@ class BenchmarkRepository(BaseRepository[BenchmarkPrice]):
             return [code for (code,) in result.fetchall()]
 
         except Exception as e:
-            logger.error(f"Error retrieving available benchmarks: {str(e)}")
+            logger.error(f"사용 가능한 벤치마크 조회 오류: {str(e)}")
             raise
 
     async def get_benchmark_returns_series(
@@ -112,5 +112,5 @@ class BenchmarkRepository(BaseRepository[BenchmarkPrice]):
             return returns_series
 
         except Exception as e:
-            logger.error(f"Error calculating benchmark returns for {index_code}: {str(e)}")
+            logger.error(f"{index_code}의 벤치마크 수익률 계산 오류: {str(e)}")
             raise

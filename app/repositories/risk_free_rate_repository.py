@@ -50,11 +50,11 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
                 # 연율 기준 금리를 소수로 변환 (예: 3.25% -> 0.0325)
                 return float(rate_data.rate) / 100.0
             
-            logger.warning(f"No risk-free rate found for {rate_type} on or before {target_date}")
+            logger.warning(f"{target_date} 또는 그 이전의 {rate_type} 무위험수익률을 찾을 수 없음")
             return None
 
         except Exception as e:
-            logger.error(f"Error retrieving risk-free rate: {str(e)}")
+            logger.error(f"무위험수익률 조회 오류: {str(e)}")
             raise
 
     async def get_risk_free_rate_series(
@@ -81,7 +81,7 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
             rate_data = result.scalars().all()
             
             if not rate_data:
-                logger.warning(f"No risk-free rate series found for {rate_type} between {start_date} and {end_date}")
+                logger.warning(f"{start_date}와 {end_date} 사이의 {rate_type} 무위험수익률 시리즈를 찾을 수 없음")
                 return pd.Series(dtype=float)
 
             # DataFrame으로 변환 후 시계열 생성
@@ -104,11 +104,11 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
                 name=f'{rate_type}_rate'
             )
             
-            logger.info(f"Retrieved {len(rate_series)} risk-free rate records for {rate_type}")
+            logger.info(f"{rate_type}에 대해 {len(rate_series)}개 무위험수익률 레코드 조회 완료")
             return rate_series
 
         except Exception as e:
-            logger.error(f"Error retrieving risk-free rate series: {str(e)}")
+            logger.error(f"무위험수익률 시리즈 조회 오류: {str(e)}")
             raise
 
     async def get_available_rate_types(self) -> List[str]:
@@ -119,7 +119,7 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
             return [rate_type for (rate_type,) in result.fetchall()]
 
         except Exception as e:
-            logger.error(f"Error retrieving available rate types: {str(e)}")
+            logger.error(f"사용 가능한 금리 유형 조회 오류: {str(e)}")
             raise
 
     async def interpolate_missing_rates(
@@ -141,9 +141,9 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
             # 여전히 NaN이 있으면 0으로 채우기
             complete_series = complete_series.fillna(0.0)
             
-            logger.info(f"Interpolated risk-free rate series to {len(complete_series)} observations")
+            logger.info(f"무위험수익률 시리즈를 {len(complete_series)}개 관측치로 보간 완료")
             return complete_series
 
         except Exception as e:
-            logger.error(f"Error interpolating risk-free rates: {str(e)}")
+            logger.error(f"무위험수익률 보간 오류: {str(e)}")
             raise

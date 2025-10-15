@@ -24,35 +24,35 @@ parallel_service = ParallelProcessingService()
 async def lifespan(app: FastAPI):
     """애플리케이션 생명주기 관리"""
     # 시작 시 실행
-    logger.info("Starting Server", version=settings.app_version)
+    logger.info("서버 시작", version=settings.app_version)
     
     # 스케줄러 시작
     try:
         scheduler_service.start()
-        logger.info("Scheduler service started successfully")
+        logger.info("스케줄러 서비스 시작 성공")
     except Exception as e:
-        logger.error("Failed to start scheduler service", error=str(e))
+        logger.error("스케줄러 서비스 시작 실패", error=str(e))
         raise
     
     
     yield
     
     # 종료 시 실행
-    logger.info("Shutting down Server")
+    logger.info("서버 종료")
     
     # 스케줄러 중지
     try:
         scheduler_service.stop()
-        logger.info("Scheduler service stopped")
+        logger.info("스케줄러 서비스 중지됨")
     except Exception as e:
-        logger.error("Failed to stop scheduler service", error=str(e))
+        logger.error("스케줄러 서비스 중지 실패", error=str(e))
     
     # 병렬처리 서비스 정리
     try:
         await parallel_service.cleanup()
-        logger.info("Parallel processing service cleaned up")
+        logger.info("병렬 처리 서비스 정리 완료")
     except Exception as e:
-        logger.error("Failed to cleanup parallel processing service", error=str(e))
+        logger.error("병렬 처리 서비스 정리 실패", error=str(e))
 
 
 # FastAPI 애플리케이션 생성
@@ -116,7 +116,7 @@ async def log_requests(request: Request, call_next):
     # 응답 로깅
     process_time = time.time() - start_time
     logger.info(
-        "API Response",
+        "API 응답",
         method=request.method,
         url=str(request.url),
         status_code=response.status_code,
@@ -163,7 +163,7 @@ async def global_exception_handler(request, exc):
         return await http_exception_handler(request, exc)
     
     logger.error(
-        "Unhandled exception",
+        "처리되지 않은 예외",
         error=str(exc),
         path=request.url.path,
         method=request.method
@@ -226,7 +226,7 @@ async def get_scheduler_status():
             "data": status
         }
     except Exception as e:
-        logger.error("Failed to get scheduler status", error=str(e))
+        logger.error("스케줄러 상태 조회 실패", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -240,7 +240,7 @@ async def start_scheduler():
             "message": "Scheduler started successfully"
         }
     except Exception as e:
-        logger.error("Failed to start scheduler", error=str(e))
+        logger.error("스케줄러 시작 실패", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -254,7 +254,7 @@ async def stop_scheduler():
             "message": "Scheduler stopped successfully"
         }
     except Exception as e:
-        logger.error("Failed to stop scheduler", error=str(e))
+        logger.error("스케줄러 중지 실패", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

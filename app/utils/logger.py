@@ -79,7 +79,7 @@ def log_api_request(logger, method: str, url: str, **kwargs):
     """API 요청 로그를 기록하는 헬퍼 함수"""
     current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     logger.info(
-        "API Request",
+        "API 요청",
         method=method,
         url=url,
         timestamp=current_time,

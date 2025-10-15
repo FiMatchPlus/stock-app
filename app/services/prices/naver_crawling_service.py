@@ -44,7 +44,7 @@ class NaverCrawlingService:
                 
                 except httpx.HTTPStatusError as e:
                     logger.error(
-                        "HTTP request failed",
+                        "HTTP 요청 실패",
                         url=url,
                         status_code=e.response.status_code,
                         attempt=attempt + 1
@@ -57,7 +57,7 @@ class NaverCrawlingService:
                 
                 except httpx.RequestError as e:
                     logger.error(
-                        "HTTP request error",
+                        "HTTP 요청 오류",
                         url=url,
                         error=str(e),
                         attempt=attempt + 1
@@ -249,7 +249,7 @@ class NaverCrawlingService:
             if not data:
                 duration_ms = int((datetime.now() - start_ts).total_seconds() * 1000)
                 logger.warning(
-                    "Crawl failed - parse returned no data",
+                    "크롤링 실패 - 파싱 결과 데이터 없음",
                     stock_code=stock_code,
                     target_date=(target_date.date() if isinstance(target_date, datetime) else target_date) if target_date else "yesterday",
                     duration_ms=duration_ms,
@@ -261,7 +261,7 @@ class NaverCrawlingService:
             if not stock_price:
                 duration_ms = int((datetime.now() - start_ts).total_seconds() * 1000)
                 logger.warning(
-                    "Crawl failed - conversion to StockPrice returned None",
+                    "크롤링 실패 - StockPrice 변환 결과 None",
                     stock_code=stock_code,
                     duration_ms=duration_ms,
                 )
@@ -269,7 +269,7 @@ class NaverCrawlingService:
             
             duration_ms = int((datetime.now() - start_ts).total_seconds() * 1000)
             logger.info(
-                "Crawl succeeded",
+                "크롤링 성공",
                 stock_code=stock_code,
                 interval_unit=stock_price.interval_unit,
                 date=str(stock_price.datetime.date()),
@@ -279,7 +279,7 @@ class NaverCrawlingService:
             
         except Exception as e:
             logger.error(
-                "Crawl exception",
+                "크롤링 예외",
                 error=str(e),
                 stock_code=stock_code,
             )
@@ -307,7 +307,7 @@ class NaverCrawlingService:
                     results.append(res)
 
         logger.info(
-            "Concurrent crawl started",
+            "동시 크롤링 시작",
             total_symbols=len(stock_codes),
             concurrency=concurrency,
         )
@@ -316,7 +316,7 @@ class NaverCrawlingService:
         await asyncio.gather(*tasks, return_exceptions=True)
 
         logger.info(
-            "Concurrent crawl completed",
+            "동시 크롤링 완료",
             total_symbols=len(stock_codes),
             succeeded=len(results),
             failed=len(stock_codes) - len(results),

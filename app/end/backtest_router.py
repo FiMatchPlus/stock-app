@@ -70,7 +70,7 @@ async def start_backtest_async(
         job_id = str(uuid.uuid4())
         
         logger.info(
-            "Async backtest request received",
+            "비동기 백테스트 요청 수신",
             job_id=job_id,
             start_date=request.start.isoformat(),
             end_date=request.end.isoformat(),
@@ -100,7 +100,7 @@ async def start_backtest_async(
         
     except Exception as e:
         logger.error(
-            "Failed to start async backtest",
+            "비동기 백테스트 시작 실패",
             error=str(e),
             request_start=request.start.isoformat(),
             request_end=request.end.isoformat(),
@@ -142,7 +142,7 @@ async def run_backtest_sync(
             )
         
         logger.info(
-            "Sync backtest request received",
+            "동기 백테스트 요청 수신",
             start_date=request.start.isoformat(),
             end_date=request.end.isoformat(),
             holdings_count=len(request.holdings),
@@ -158,7 +158,7 @@ async def run_backtest_sync(
         )
         
         logger.info(
-            "Sync backtest completed successfully",
+            "동기 백테스트 완료",
             execution_time=f"{result.execution_time:.3f}s",
             portfolio_id=result.portfolio_snapshot.portfolio_id,
             backtest_id=result.backtest_id
@@ -171,7 +171,7 @@ async def run_backtest_sync(
         
     except Exception as e:
         logger.error(
-            "Failed to run sync backtest",
+            "동기 백테스트 실행 실패",
             error=str(e),
             request_start=request.start.isoformat(),
             request_end=request.end.isoformat(),
@@ -200,9 +200,9 @@ async def run_backtest_and_callback(
     
     async with AsyncSessionLocal() as backtest_session:
         try:
-            logger.info(f"Starting background backtest", job_id=job_id)
+            logger.info(f"백그라운드 백테스트 시작", job_id=job_id)
             
-            # 백테스트 실행 (callback_url 제거한 요청으로)
+            # 백테스트 실행
             backtest_request = BacktestRequest(
                 start=request.start,
                 end=request.end,
@@ -241,7 +241,7 @@ async def run_backtest_and_callback(
             await send_callback(request.callback_url, callback_response)
             
             logger.info(
-                "Background backtest completed successfully",
+                "백그라운드 백테스트 완료",
                 job_id=job_id,
                 execution_time=f"{execution_time:.3f}s"
             )
@@ -250,7 +250,7 @@ async def run_backtest_and_callback(
             execution_time = time.time() - start_time
             
             logger.error(
-                "Background backtest failed",
+                "백그라운드 백테스트 실패",
                 job_id=job_id,
                 error=str(e),
                 execution_time=f"{execution_time:.3f}s",
@@ -318,14 +318,14 @@ async def send_callback(callback_url: str, response: BacktestCallbackResponse):
             if callback_result.status_code == expected_status:
                 if response.success:
                     logger.info(
-                        "Callback sent successfully",
+                        "콜백 전송 성공",
                         job_id=response.job_id,
                         callback_url=callback_url,
                         status_code=callback_result.status_code
                     )
                 else:
                     logger.warning(
-                        "Callback sent with error response",
+                        "콜백 에러 응답 전송됨",
                         job_id=response.job_id,
                         callback_url=callback_url,
                         status_code=callback_result.status_code,
@@ -333,9 +333,9 @@ async def send_callback(callback_url: str, response: BacktestCallbackResponse):
                     )
             else:
                 # 예상과 다른 상태 코드를 받은 경우
-                status_msg = "successfully" if response.success else "with error response"
+                status_msg = "성공적으로 전송됨" if response.success else "에러 응답과 함께 전송됨"
                 logger.warning(
-                    f"Callback {status_msg} but response status code differs",
+                    f"콜백 {status_msg}, 그러나 응답 상태 코드가 다름",
                     job_id=response.job_id,
                     callback_url=callback_url,
                     expected_status=expected_status,
@@ -345,7 +345,7 @@ async def send_callback(callback_url: str, response: BacktestCallbackResponse):
                 
     except Exception as e:
         logger.error(
-            "Failed to send callback",
+            "콜백 전송 실패",
             job_id=response.job_id,
             callback_url=callback_url,
             success=response.success,
@@ -415,7 +415,7 @@ async def analyze_backtest_result(
         )
         
         logger.info(
-            "Enhanced backtest analysis completed",
+            "백테스트 고도화 분석 완료",
             portfolio_id=portfolio_id,
             benchmark_code=benchmark_code,
             metrics_count=len(analysis_result)
@@ -425,7 +425,7 @@ async def analyze_backtest_result(
         
     except Exception as e:
         logger.error(
-            "Failed to analyze backtest result",
+            "백테스트 결과 분석 실패",
             portfolio_id=portfolio_id,
             benchmark_code=benchmark_code,
             error=str(e)

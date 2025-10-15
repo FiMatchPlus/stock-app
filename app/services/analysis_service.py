@@ -206,7 +206,7 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
         # 제약조건 정보 추가
         constraint_notes = f", weight_constraints=[min=5%, max=90%]"
         
-        # 상한/하한 위반 경고 추가
+        # 상한/하한 위반 경고 notes
         cap_notes = f", weight_cap_applied=0.9, capped_assets={capped_assets}" if capped_assets else ""
         floor_notes = ""
         if floored_assets:
@@ -216,7 +216,7 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
         
         # 실행 시간 계산
         execution_time = time.time() - start_time
-        logger.info(f"Portfolio analysis completed in {execution_time:.3f} seconds")
+        logger.info(f"포트폴리오 분석 완료: {execution_time:.3f}초")
 
         metadata = AnalysisMetadata(
             risk_free_rate_used=risk_free_rate,

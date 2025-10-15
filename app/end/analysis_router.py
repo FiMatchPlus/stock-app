@@ -68,7 +68,7 @@ async def start_analysis_async(
         job_id = str(uuid.uuid4())
         
         logger.info(
-            "Async analysis request received",
+            "비동기 분석 요청 수신",
             job_id=job_id,
             holdings_count=len(request.holdings),
             lookback_years=request.lookback_years,
@@ -96,7 +96,7 @@ async def start_analysis_async(
         
     except Exception as e:
         logger.error(
-            "Failed to start async analysis",
+            "비동기 분석 시작 실패",
             error=str(e),
             holdings_count=len(request.holdings) if request.holdings else 0,
             callback_url=request.callback_url
@@ -125,7 +125,7 @@ async def run_analysis_and_callback(
     
     async with AsyncSessionLocal() as analysis_session:
         try:
-            logger.info(f"Starting background analysis", job_id=job_id)
+            logger.info(f"백그라운드 분석 시작", job_id=job_id)
             
             result = await analysis_service.run_analysis(
                 request=request,
@@ -154,7 +154,7 @@ async def run_analysis_and_callback(
             await send_analysis_callback(request.callback_url, callback_response)
             
             logger.info(
-                "Background analysis completed successfully",
+                "백그라운드 분석 완료",
                 job_id=job_id,
                 execution_time=f"{execution_time:.3f}s"
             )
@@ -163,7 +163,7 @@ async def run_analysis_and_callback(
             execution_time = time.time() - start_time
             
             logger.error(
-                "Background analysis failed",
+                "백그라운드 분석 실패",
                 job_id=job_id,
                 error=str(e),
                 execution_time=f"{execution_time:.3f}s",
@@ -208,7 +208,7 @@ async def send_analysis_callback(callback_url: str, response: AnalysisCallbackRe
             # 콜백 직전 실제 JSON 페이로드 로깅
             payload = response.model_dump(mode='json')
             logger.info(
-                "Prepared analysis callback JSON payload",
+                "분석 콜백 JSON 페이로드 준비 완료",
                 job_id=response.job_id,
                 payload=json.dumps(payload, ensure_ascii=False, default=str)
             )
@@ -229,22 +229,22 @@ async def send_analysis_callback(callback_url: str, response: AnalysisCallbackRe
             if callback_result.status_code == expected_status:
                 if response.success:
                     logger.info(
-                        "Analysis callback sent successfully",
+                        "분석 콜백 전송 성공",
                         job_id=response.job_id,
                         callback_url=callback_url,
                         status_code=callback_result.status_code
                     )
                 else:
                     logger.warning(
-                        "Analysis callback sent with error response",
+                        "분석 콜백 에러 응답 전송됨",
                         job_id=response.job_id,
                         callback_url=callback_url,
                         status_code=callback_result.status_code
                     )
             else:
-                status_msg = "successfully" if response.success else "with error response"
+                status_msg = "성공적으로 전송됨" if response.success else "에러 응답과 함께 전송됨"
                 logger.warning(
-                    f"Analysis callback {status_msg} but response status code differs",
+                    f"분석 콜백 {status_msg}, 그러나 응답 상태 코드가 다름",
                     job_id=response.job_id,
                     callback_url=callback_url,
                     expected_status=expected_status,
@@ -254,7 +254,7 @@ async def send_analysis_callback(callback_url: str, response: AnalysisCallbackRe
                 
     except Exception as e:
         logger.error(
-            "Failed to send analysis callback",
+            "분석 콜백 전송 실패",
             job_id=response.job_id,
             callback_url=callback_url,
             success=response.success,
@@ -278,7 +278,7 @@ async def get_available_benchmarks(
         benchmarks = await repo.get_available_benchmarks()
         return benchmarks
     except Exception as e:
-        logger.error("Failed to retrieve available benchmarks", error=str(e))
+        logger.error("사용 가능한 벤치마크 조회 실패", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -296,7 +296,7 @@ async def get_available_risk_free_rates(
         rate_types = await repo.get_available_rate_types()
         return rate_types
     except Exception as e:
-        logger.error("Failed to retrieve available risk-free rate types", error=str(e))
+        logger.error("사용 가능한 무위험수익률 유형 조회 실패", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -358,7 +358,7 @@ async def validate_data_integrity(
             ) else 'incomplete'
         }
     except Exception as e:
-        logger.error("Failed to validate data integrity", error=str(e))
+        logger.error("데이터 무결성 검증 실패", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 
