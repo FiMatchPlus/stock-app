@@ -1,4 +1,4 @@
-"""포트폴리오 분석 서비스 (MPT/CAPM) - 이동 윈도우 버전
+"""포트폴리오 분석 서비스 - Moving Window
 
 개요:
 - 3년 윈도우 크기로 1개월 간격으로 이동하며 포트폴리오 최적화 수행
@@ -43,7 +43,7 @@ logger = get_logger(__name__)
 
 
 class AnalysisService(OptimizationService, MetricsService, DataService, BenchmarkService, BetaService, ComposeService):
-    """MPT/CAPM 기반 포트폴리오 분석 서비스 - 이동 윈도우 방식"""
+    """포트폴리오 분석 서비스 - Moving Window 방식"""
 
     def __init__(self):
         self.window_years = 1      # 학습 윈도우 크기: 1년 (252 거래일)
@@ -55,7 +55,7 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
         request: AnalysisRequest,
         session: AsyncSession,
     ) -> PortfolioAnalysisResponse:
-        """이동 윈도우 기반 포트폴리오 분석 실행"""
+        """Moving Window 기반 포트폴리오 분석 실행"""
         
         # 실행 시간 측정 시작
         start_time = time.time()
@@ -104,7 +104,7 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
         if not benchmark_returns.empty:
             prices_df, benchmark_returns = self._synchronize_time_series(prices_df, benchmark_returns)
 
-        # 이동 윈도우 최적화 수행
+        # Moving Window 최적화 수행
         optimization_results = await self._perform_rolling_optimization(
             prices_df, benchmark_returns, risk_free_rate
         )

@@ -269,7 +269,11 @@ class MetricsService:
             (var_95, cvar_95): 일별 VaR/CVaR 값 (음수)
         """
         try:
-            if len(returns) < 5:  # 최소 5개 이상의 데이터 필요 (95% 분위수 계산)
+            n = len(returns)
+            
+            # 최소 데이터 개수 체크 (95% 신뢰수준: 최소 20개 권장)
+            if n < 20:
+                logger.warning(f"VaR/CVaR 계산을 위한 데이터 부족: {n}개 (최소 20개 권장)")
                 return 0.0, 0.0
             
             # 수익률을 numpy 배열로 변환
@@ -279,8 +283,14 @@ class MetricsService:
             var_95 = np.percentile(returns_array, 5)
             
             # 95% CVaR 계산 (VaR보다 작은 값들의 평균 - 최악 5% 평균 손실)
-            tail_losses = returns_array[returns_array <= var_95]
-            cvar_95 = tail_losses.mean() if len(tail_losses) > 0 else var_95
+            # VaR 값 자체는 제외하고 그보다 작은 값들만 사용 (보수적 접근)
+            tail_losses = returns_array[returns_array < var_95]
+            
+            if len(tail_losses) > 0:
+                cvar_95 = tail_losses.mean()
+            else:
+                # tail_losses가 비어있으면 VaR 사용 (모든 값이 VaR와 같은 경우)
+                cvar_95 = var_95
             
             # VaR/CVaR은 일별 손실률이므로 그대로 반환 (음수 값)
             # 참고: 일별 -2% VaR는 "95% 확률로 하루 손실이 -2% 이내"를 의미
