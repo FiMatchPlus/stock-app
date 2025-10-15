@@ -290,7 +290,7 @@ class BetaService:
             return None
 
     def _get_default_beta_analysis(self) -> BetaAnalysis:
-        """기본 베타 분석 정보 반환 (계산 실패 시)"""
+        """기본 베타 분석 정보"""
         return BetaAnalysis(
             beta=1.0,
             r_square=0.0,

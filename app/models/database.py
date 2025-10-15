@@ -10,7 +10,6 @@ class Base(DeclarativeBase):
     pass
 
 
-# 설정에서 데이터베이스 URL 및 디버그 모드 가져오기
 database_url = settings.database_url
 debug_mode = settings.debug
 
@@ -33,7 +32,6 @@ AsyncSessionLocal = async_sessionmaker(
 
 
 async def get_async_session() -> AsyncSession:
-    """비동기 데이터베이스 세션 의존성"""
     async with AsyncSessionLocal() as session:
         try:
             yield session
