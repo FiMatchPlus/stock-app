@@ -1,6 +1,5 @@
 from typing import Dict
 
-# Common
 from app.models.schema_common import (
     KST,
     get_kst_now,
@@ -9,7 +8,6 @@ from app.models.schema_common import (
     BacktestDataError,
 )
 
-# Stock
 from app.models.schema_stock import (
     StockCreate,
     StockResponse,
@@ -22,7 +20,6 @@ from app.models.schema_stock import (
     RiskFreeRateResponse,
 )
 
-# Backtest
 from app.models.schema_backtest import (
     Holding,
     TradingRule,
@@ -40,7 +37,6 @@ from app.models.schema_backtest import (
     BacktestCallbackResponse,
 )
 
-# Analysis
 from app.models.schema_analysis import (
     AnalysisHoldingInput,
     AnalysisRequest,
@@ -57,17 +53,14 @@ from app.models.schema_analysis import (
     AnalysisCallbackResponse,
 )
 
-# Backward compatibility alias
 PortfolioWeights = Dict[str, float]
 
 __all__ = [
-    # Common
     "KST",
     "get_kst_now",
     "ErrorResponse",
     "MissingStockData",
     "BacktestDataError",
-    # Stock
     "StockCreate",
     "StockResponse",
     "StockPriceCreate",
@@ -77,7 +70,6 @@ __all__ = [
     "AggregateResult",
     "BenchmarkPriceResponse",
     "RiskFreeRateResponse",
-    # Backtest
     "Holding",
     "TradingRule",
     "TradingRules",
@@ -92,7 +84,6 @@ __all__ = [
     "BacktestResponse",
     "BacktestJobResponse",
     "BacktestCallbackResponse",
-    # Analysis
     "AnalysisHoldingInput",
     "AnalysisRequest",
     "BetaAnalysis",
@@ -106,6 +97,5 @@ __all__ = [
     "AnalysisJobResponse",
     "AnalysisCallbackMetadata",
     "AnalysisCallbackResponse",
-    # Backward compatibility
     "PortfolioWeights",
 ]

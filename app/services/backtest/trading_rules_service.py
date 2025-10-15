@@ -39,7 +39,6 @@ class TradingRulesService:
         
         execution_logs = []
         
-        # 손절 규칙 체크
         if rules.stopLoss:
             should_stop_loss, stop_logs = await self._check_stop_loss_rules(
                 date=date,
@@ -56,7 +55,6 @@ class TradingRulesService:
                 execution_logs.extend(stop_logs)
                 return True, execution_logs, "LIQUIDATED"
         
-        # 익절 규칙 체크
         if rules.takeProfit:
             should_take_profit, profit_logs = await self._check_take_profit_rules(
                 date=date,
@@ -127,7 +125,6 @@ class TradingRulesService:
                         portfolio_value=current_portfolio_value
                     ))
                     
-                    # 하나라도 조건 만족하면 손절 실행
                     return True, execution_logs
             
             except Exception as e:
@@ -173,7 +170,6 @@ class TradingRulesService:
                         portfolio_value=current_portfolio_value
                     ))
                     
-                    # 하나라도 조건 만족하면 익절 실행
                     return True, execution_logs
             
             except Exception as e:
@@ -193,16 +189,13 @@ class TradingRulesService:
         if not benchmark_returns or benchmark_returns.empty:
             return False, 0.0, threshold
         
-        # 포트폴리오 수익률 시계열 생성
         portfolio_returns = pd.Series([
             data['daily_return'] for data in portfolio_data
         ])
         
-        # 베타 계산
         if len(portfolio_returns) < 2 or len(benchmark_returns) < 2:
             return False, 0.0, threshold
         
-        # 시계열 길이 맞추기
         min_length = min(len(portfolio_returns), len(benchmark_returns))
         portfolio_returns = portfolio_returns.iloc[-min_length:]
         benchmark_returns = benchmark_returns.iloc[-min_length:]
@@ -213,7 +206,6 @@ class TradingRulesService:
             
             beta = covariance / benchmark_variance if benchmark_variance > 0 else 1.0
             
-            # 베타가 임계값을 초과하면 손절
             should_trigger = abs(beta) > threshold
             
             return should_trigger, abs(beta), threshold
@@ -232,21 +224,17 @@ class TradingRulesService:
         if len(portfolio_data) < 2:
             return False, 0.0, threshold
         
-        # 포트폴리오 가치 시계열
         portfolio_values = pd.Series([
             data['portfolio_value'] for data in portfolio_data
         ])
         
-        # 누적 수익률 계산
         cumulative_returns = (1 + portfolio_values.pct_change().fillna(0)).cumprod()
         
-        # 최대 낙폭 계산
         running_max = cumulative_returns.expanding().max()
         drawdown = (cumulative_returns - running_max) / running_max
         
         max_drawdown = abs(drawdown.min())
         
-        # 최대 낙폭이 임계값을 초과하면 손절
         should_trigger = max_drawdown > threshold
         
         return should_trigger, max_drawdown, threshold
@@ -258,19 +246,16 @@ class TradingRulesService:
     ) -> Tuple[bool, float, float]:
         """VaR 규칙 체크"""
         
-        if len(portfolio_data) < 10:  # 충분한 데이터가 있어야 VaR 계산 가능
+        if len(portfolio_data) < 10:
             return False, 0.0, threshold
         
-        # 포트폴리오 수익률 시계열
         portfolio_returns = pd.Series([
             data['daily_return'] for data in portfolio_data
         ])
         
-        # 95% VaR 계산
-        var_95 = np.percentile(portfolio_returns, 5)  # 5% 분위수
+        var_95 = np.percentile(portfolio_returns, 5)
         var_95_abs = abs(var_95)
         
-        # VaR이 임계값을 초과하면 손절
         should_trigger = var_95_abs > threshold
         
         return should_trigger, var_95_abs, threshold
@@ -285,10 +270,8 @@ class TradingRulesService:
         if not individual_returns:
             return False, 0.0, threshold
         
-        # 가장 높은 수익률을 가진 종목 찾기
         max_return = max(individual_returns.values())
         
-        # 최고 수익률이 임계값을 초과하면 익절
         should_trigger = max_return > threshold
         
         return should_trigger, max_return, threshold
@@ -311,19 +294,15 @@ class TradingRulesService:
         if len(portfolio_data) < 1:
             return False, 0.0, threshold
         
-        # 초기 포트폴리오 가치 (첫 번째 데이터)
         initial_value = portfolio_data[0]['portfolio_value']
         
-        # 현재 포트폴리오 가치 (마지막 데이터)
         current_value = portfolio_data[-1]['portfolio_value']
         
         if initial_value <= 0:
             return False, 0.0, threshold
         
-        # 총 수익률 계산 (초기값 대비)
         total_return = (current_value - initial_value) / initial_value
         
-        # 손실률이 임계값을 초과하면 손절 (threshold는 음수값)
         should_trigger = total_return < threshold
         
         return should_trigger, total_return, threshold

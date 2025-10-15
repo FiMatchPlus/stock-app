@@ -4,7 +4,6 @@ from datetime import datetime, timezone, timedelta
 from typing import Optional, List
 from pydantic import BaseModel, Field
 
-# 한국 시간대 설정
 KST = timezone(timedelta(hours=9))
 
 def get_kst_now():

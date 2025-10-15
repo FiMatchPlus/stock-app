@@ -15,7 +15,6 @@ logger = get_logger(__name__)
 class BacktestMetricsService:
     """백테스트 성과 지표 계산 서비스"""
     
-    # ThreadPoolExecutor는 __init__에서 초기화되어야 함
     thread_pool: ThreadPoolExecutor
     
     async def _calculate_metrics(self, result_summary: List[Dict[str, Any]]) -> BacktestMetrics:
@@ -23,7 +22,6 @@ class BacktestMetricsService:
         if not result_summary:
             raise ValueError("백테스트 결과 데이터가 없어 성과 지표를 계산할 수 없습니다.")
         
-        # 포트폴리오 가치 기반 일별 수익률 계산
         returns = []
         prev_value = None
         initial_value = None
@@ -37,10 +35,8 @@ class BacktestMetricsService:
             final_value = portfolio_value
             
             if prev_value is None:
-                # 첫날은 수익률 0
                 daily_return = 0.0
             else:
-                # 전일 대비 수익률
                 daily_return = (portfolio_value - prev_value) / prev_value if prev_value > 0 else 0.0
             
             returns.append(daily_return)
@@ -48,30 +44,22 @@ class BacktestMetricsService:
         
         returns = np.array(returns)
         
-        # 기본 통계량 계산 - 초기/최종 가치 기반
         total_return = (final_value - initial_value) / initial_value if initial_value > 0 else 0.0
         
         logger.info(f"Portfolio return calculation: initial={initial_value:,.0f}, final={final_value:,.0f}, return={total_return*100:.2f}%")
         
-        # 연환산 수익률
         days = len(returns)
         annualized_return = (1 + total_return) ** (252 / days) - 1
         
-        # 변동성 (연환산)
         volatility = returns.std() * np.sqrt(252)
         
-        # 샤프 비율 (무위험 수익률 고려)
-        # TODO: 무위험 수익률을 매개변수로 받아서 계산하도록 수정 필요
-        risk_free_rate = 0.0  # 임시로 0% 사용
+        risk_free_rate = 0.0
         sharpe_ratio = (annualized_return - risk_free_rate) / volatility if volatility > 0 else 0
         
-        # 최대 낙폭 계산
         max_drawdown = self._calculate_max_drawdown(returns)
         
-        # VaR/CVaR 계산 (병렬 처리)
         var_95, var_99, cvar_95, cvar_99 = await self._calculate_var_cvar(returns)
         
-        # 승률 및 손익비
         win_rate, profit_loss_ratio = self._calculate_win_loss_metrics(returns)
         
         return BacktestMetrics(
@@ -102,10 +90,8 @@ class BacktestMetricsService:
         """VaR/CVaR 계산 (병렬 처리)"""
         loop = asyncio.get_event_loop()
         
-        # 정렬된 수익률 배열 생성 (공통 사용)
         sorted_returns = np.sort(returns)
         
-        # VaR 계산 (병렬)
         var_95_task = loop.run_in_executor(
             self.thread_pool, 
             self._calculate_var, 
@@ -117,7 +103,6 @@ class BacktestMetricsService:
             sorted_returns, 0.01
         )
         
-        # CVaR 계산 (병렬)
         cvar_95_task = loop.run_in_executor(
             self.thread_pool, 
             self._calculate_cvar, 
@@ -129,7 +114,6 @@ class BacktestMetricsService:
             sorted_returns, 0.01
         )
         
-        # 결과 대기
         var_95, var_99, cvar_95, cvar_99 = await asyncio.gather(
             var_95_task, var_99_task, cvar_95_task, cvar_99_task
         )

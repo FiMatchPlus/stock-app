@@ -34,7 +34,6 @@ class MissingStockPriceDataException(BacktestDataException):
         self.total_stocks = total_stocks
         self.missing_stocks_count = len(missing_stocks)
         
-        # 기본 메시지 생성
         if message is None:
             if self.missing_stocks_count == 1:
                 stock_info = missing_stocks[0]

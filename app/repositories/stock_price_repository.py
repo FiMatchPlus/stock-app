@@ -100,7 +100,6 @@ class StockPriceRepository(BaseRepository[StockPrice]):
     
     async def upsert_price(self, price_data: Dict[str, Any]) -> StockPrice:
         """주가 데이터 UPSERT"""
-        # 기존 데이터 확인
         existing_price = await self.session.execute(
             select(StockPrice).where(
                 and_(
@@ -113,7 +112,6 @@ class StockPriceRepository(BaseRepository[StockPrice]):
         existing_price = existing_price.scalar_one_or_none()
         
         if existing_price:
-            # 업데이트
             for field, value in price_data.items():
                 if hasattr(existing_price, field):
                     setattr(existing_price, field, value)
@@ -121,7 +119,6 @@ class StockPriceRepository(BaseRepository[StockPrice]):
             await self.session.refresh(existing_price)
             return existing_price
         else:
-            # 생성
             return await self.create(price_data)
     
     async def bulk_upsert_prices(self, prices_data: List[Dict[str, Any]]) -> List[StockPrice]:
@@ -169,7 +166,6 @@ class StockPriceRepository(BaseRepository[StockPrice]):
         interval_unit: str
     ) -> List[StockPrice]:
         """여러 종목의 최신 주가 조회"""
-        # 서브쿼리로 각 종목별 최신 시간 조회
         subquery = select(
             StockPrice.stock_code,
             func.max(StockPrice.datetime).label("max_datetime")
@@ -180,7 +176,6 @@ class StockPriceRepository(BaseRepository[StockPrice]):
             )
         ).group_by(StockPrice.stock_code).subquery()
         
-        # 메인 쿼리로 최신 데이터 조회
         query = select(StockPrice).join(
             subquery,
             and_(

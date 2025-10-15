@@ -13,7 +13,6 @@ class Base(DeclarativeBase):
 database_url = settings.database_url
 debug_mode = settings.debug
 
-# 비동기 엔진 생성
 engine = create_async_engine(
     database_url,
     echo=debug_mode,
@@ -23,7 +22,6 @@ engine = create_async_engine(
     pool_recycle=3600,
 )
 
-# 비동기 세션 팩토리
 AsyncSessionLocal = async_sessionmaker(
     engine,
     class_=AsyncSession,

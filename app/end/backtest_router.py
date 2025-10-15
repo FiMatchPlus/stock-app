@@ -21,11 +21,9 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# 라우터 생성
 router = APIRouter(prefix="/backtest", tags=["backtest"])
 
 
-# 의존성 주입 함수들
 async def get_backtest_service() -> BacktestService:
     """백테스트 서비스 의존성 주입"""
     return BacktestService()
@@ -46,7 +44,6 @@ async def start_backtest_async(
 ) -> BacktestJobResponse:
     """비동기 백테스트 시작"""
     try:
-        # 입력 검증
         if request.start >= request.end:
             raise HTTPException(
                 status_code=400,
@@ -59,18 +56,16 @@ async def start_backtest_async(
                 detail="At least one holding must be specified"
             )
         
-        # 콜백 URL 필수 확인
         if not request.callback_url:
             raise HTTPException(
                 status_code=400,
                 detail="callback_url is required for async backtest"
             )
         
-        # 작업 ID 생성
         job_id = str(uuid.uuid4())
         
         logger.info(
-            "Async backtest request received",
+            "비동기 백테스트 요청 수신",
             job_id=job_id,
             start_date=request.start.isoformat(),
             end_date=request.end.isoformat(),
@@ -79,7 +74,6 @@ async def start_backtest_async(
             portfolio_id=portfolio_id
         )
         
-        # 백그라운드 작업으로 백테스트 실행
         background_tasks.add_task(
             run_backtest_and_callback,
             job_id=job_id,
@@ -100,7 +94,7 @@ async def start_backtest_async(
         
     except Exception as e:
         logger.error(
-            "Failed to start async backtest",
+            "비동기 백테스트 시작 실패",
             error=str(e),
             request_start=request.start.isoformat(),
             request_end=request.end.isoformat(),
@@ -128,7 +122,6 @@ async def run_backtest_sync(
 ) -> BacktestResponse:
     """동기 백테스트 실행"""
     try:
-        # 입력 검증
         if request.start >= request.end:
             raise HTTPException(
                 status_code=400,
@@ -142,7 +135,7 @@ async def run_backtest_sync(
             )
         
         logger.info(
-            "Sync backtest request received",
+            "동기 백테스트 요청 수신",
             start_date=request.start.isoformat(),
             end_date=request.end.isoformat(),
             holdings_count=len(request.holdings),
@@ -150,7 +143,6 @@ async def run_backtest_sync(
             backtest_id=request.backtest_id
         )
         
-        # 백테스트 실행
         result = await backtest_service.run_backtest(
             request=request,
             session=session,
@@ -158,7 +150,7 @@ async def run_backtest_sync(
         )
         
         logger.info(
-            "Sync backtest completed successfully",
+            "동기 백테스트 완료",
             execution_time=f"{result.execution_time:.3f}s",
             portfolio_id=result.portfolio_snapshot.portfolio_id,
             backtest_id=result.backtest_id
@@ -171,7 +163,7 @@ async def run_backtest_sync(
         
     except Exception as e:
         logger.error(
-            "Failed to run sync backtest",
+            "동기 백테스트 실행 실패",
             error=str(e),
             request_start=request.start.isoformat(),
             request_end=request.end.isoformat(),
@@ -195,14 +187,12 @@ async def run_backtest_and_callback(
     """백그라운드에서 백테스트 실행 및 콜백 전송"""
     start_time = time.time()
     
-    # 독립적인 세션 생성하여 트랜잭션 충돌 방지
     from app.models.database import AsyncSessionLocal
     
     async with AsyncSessionLocal() as backtest_session:
         try:
-            logger.info(f"Starting background backtest", job_id=job_id)
+            logger.info(f"백그라운드 백테스트 시작", job_id=job_id)
             
-            # 백테스트 실행 (callback_url 제거한 요청으로)
             backtest_request = BacktestRequest(
                 start=request.start,
                 end=request.end,
@@ -215,13 +205,12 @@ async def run_backtest_and_callback(
             
             result = await backtest_service.run_backtest(
                 request=backtest_request,
-                session=backtest_session,  # 새로운 독립 세션 사용
+                session=backtest_session,
                 portfolio_id=portfolio_id
             )
             
             execution_time = time.time() - start_time
             
-            # 성공 콜백 전송 - BacktestResponse와 동일한 구조 + benchmark_metrics 포함
             callback_response = BacktestCallbackResponse(
                 job_id=job_id,
                 success=True,
@@ -241,7 +230,7 @@ async def run_backtest_and_callback(
             await send_callback(request.callback_url, callback_response)
             
             logger.info(
-                "Background backtest completed successfully",
+                "백그라운드 백테스트 완료",
                 job_id=job_id,
                 execution_time=f"{execution_time:.3f}s"
             )
@@ -250,17 +239,15 @@ async def run_backtest_and_callback(
             execution_time = time.time() - start_time
             
             logger.error(
-                "Background backtest failed",
+                "백그라운드 백테스트 실패",
                 job_id=job_id,
                 error=str(e),
                 execution_time=f"{execution_time:.3f}s",
                 exc_info=True
             )
             
-            # 실패 콜백 전송
             from app.models.schemas import BacktestDataError
             
-            # 데이터베이스 에러 타입 분류
             error_type = "DATABASE_ERROR" if "Database error" in str(e) else "INTERNAL_ERROR"
             error_message = str(e)
             
@@ -290,14 +277,12 @@ async def send_callback(callback_url: str, response: BacktestCallbackResponse):
     """콜백 URL로 결과 전송"""
     try:
         async with httpx.AsyncClient(timeout=30.0) as client:
-            # 응답 상태에 따라 적절한 헤더와 상태 정보 추가
             headers = {
                 "Content-Type": "application/json",
                 "X-Backtest-Status": "success" if response.success else "error",
                 "X-Backtest-Job-ID": response.job_id
             }
             
-            # 에러 응답인 경우 추가 헤더 설정
             if not response.success:
                 error_type = getattr(response.error, 'error_type', 'UNKNOWN') if response.error else 'UNKNOWN'
                 headers["X-Backtest-Error-Type"] = error_type
@@ -308,34 +293,32 @@ async def send_callback(callback_url: str, response: BacktestCallbackResponse):
                 headers=headers
             )
             
-            # 성공/실패에 따른 로깅 개선
             expected_status_codes = {
-                True: 200,   # 성공: 200 OK
-                False: 400   # 에러: 400 Bad Request (클라이언트 측에서 정상적인 오류로 처리)
+                True: 200,
+                False: 400
             }
             expected_status = expected_status_codes[response.success]
             
             if callback_result.status_code == expected_status:
                 if response.success:
                     logger.info(
-                        "Callback sent successfully",
+                        "콜백 전송 성공",
                         job_id=response.job_id,
                         callback_url=callback_url,
                         status_code=callback_result.status_code
                     )
                 else:
                     logger.warning(
-                        "Callback sent with error response",
+                        "콜백 에러 응답 전송됨",
                         job_id=response.job_id,
                         callback_url=callback_url,
                         status_code=callback_result.status_code,
                         error_type=getattr(response.error, 'error_type', None) if response.error else None
                     )
             else:
-                # 예상과 다른 상태 코드를 받은 경우
-                status_msg = "successfully" if response.success else "with error response"
+                status_msg = "성공적으로 전송됨" if response.success else "에러 응답과 함께 전송됨"
                 logger.warning(
-                    f"Callback {status_msg} but response status code differs",
+                    f"콜백 {status_msg}, 그러나 응답 상태 코드가 다름",
                     job_id=response.job_id,
                     callback_url=callback_url,
                     expected_status=expected_status,
@@ -345,13 +328,12 @@ async def send_callback(callback_url: str, response: BacktestCallbackResponse):
                 
     except Exception as e:
         logger.error(
-            "Failed to send callback",
+            "콜백 전송 실패",
             job_id=response.job_id,
             callback_url=callback_url,
             success=response.success,
             error=str(e)
         )
-        # 콜백 전송 실패 시 예외를 다시 발생시켜 상위에서 실패로 처리되도록 함
         raise
 
 @router.get(
@@ -385,28 +367,23 @@ async def analyze_backtest_result(
     고급 리스크 지표들을 계산하여 반환합니다.
     """
     try:
-        # TODO: 실제로는 저장된 백테스트 결과에서 포트폴리오 수익률 시계열을 조회해야 함
-        # 현재는 예시로 임시 구현
         
         backtest_service = BacktestService()
         
-        # 임시: 포트폴리오 수익률 시계열 생성 (실제로는 DB에서 조회)
         import pandas as pd
         from datetime import datetime, timedelta
         
-        # 예시 데이터 (실제로는 백테스트 결과에서 조회)
         dates = pd.date_range(
             start=datetime.now() - timedelta(days=252),
             end=datetime.now(),
             freq='D'
         )
         portfolio_returns = pd.Series(
-            data=np.random.normal(0.0005, 0.015, len(dates)),  # 임시 랜덤 수익률
+            data=np.random.normal(0.0005, 0.015, len(dates)),
             index=dates,
             name='portfolio_returns'
         )
         
-        # 고도화 분석 실행
         analysis_result = await backtest_service.analyze_backtest_performance(
             portfolio_returns=portfolio_returns,
             benchmark_code=benchmark_code,
@@ -415,7 +392,7 @@ async def analyze_backtest_result(
         )
         
         logger.info(
-            "Enhanced backtest analysis completed",
+            "백테스트 고도화 분석 완료",
             portfolio_id=portfolio_id,
             benchmark_code=benchmark_code,
             metrics_count=len(analysis_result)
@@ -425,7 +402,7 @@ async def analyze_backtest_result(
         
     except Exception as e:
         logger.error(
-            "Failed to analyze backtest result",
+            "백테스트 결과 분석 실패",
             portfolio_id=portfolio_id,
             benchmark_code=benchmark_code,
             error=str(e)

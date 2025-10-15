@@ -17,11 +17,9 @@ class BenchmarkService:
     """벤치마크 지수 자동 결정 및 수익률 조회 서비스"""
     
     def __init__(self):
-        # KOSPI/KOSDAQ 종목 분류 기준
         self.kospi_indicators = ['KOSPI', 'KQ']
         self.kosdaq_indicators = ['KOSDAQ', 'KQ']
         
-        # 기본 벤치마크 매핑
         self.default_benchmarks = {
             'KOSPI': 'KOSPI',
             'KOSDAQ': 'KOSDAQ'
@@ -43,17 +41,15 @@ class BenchmarkService:
             str: 결정된 벤치마크 지수 코드 (KOSPI, KOSDAQ 등)
         """
         if not holdings:
-            return "KOSPI"  # 기본값
+            return "KOSPI"
         
         stock_codes = [holding['code'] for holding in holdings]
         
         try:
-            # 종목별 시장 구분 조회
             market_analysis = await self._analyze_portfolio_markets(
                 stock_codes, session
             )
             
-            # 벤치마크 결정 로직
             benchmark = await self._select_benchmark(market_analysis)
             
             logger.info(
@@ -67,7 +63,7 @@ class BenchmarkService:
             
         except Exception as e:
             logger.error(f"Failed to determine benchmark: {str(e)}")
-            return "KOSPI"  # 기본값
+            return "KOSPI"
     
     async def _analyze_portfolio_markets(
         self,
@@ -76,12 +72,10 @@ class BenchmarkService:
     ) -> Dict[str, int]:
         """포트폴리오 내 시장별 종목 분포 분석"""
         
-        # 종목 정보 조회
         query = select(Stock).where(Stock.ticker.in_(stock_codes))
         result = await session.execute(query)
         stocks = result.scalars().all()
         
-        # 시장별 분류
         market_counts = {
             'KOSPI': 0,
             'KOSDAQ': 0,
@@ -111,21 +105,18 @@ class BenchmarkService:
         if total_count == 0:
             return "KOSPI"
         
-        # 비중 계산
         kospi_ratio = kospi_count / total_count
         kosdaq_ratio = kosdaq_count / total_count
         
-        # 결정 로직
-        if kospi_ratio >= 0.6:  # KOSPI 종목이 60% 이상
+        if kospi_ratio >= 0.6:
             return "KOSPI"
-        elif kosdaq_ratio >= 0.6:  # KOSDAQ 종목이 60% 이상
+        elif kosdaq_ratio >= 0.6:
             return "KOSDAQ"
-        elif kospi_ratio > kosdaq_ratio:  # KOSPI가 더 많음
+        elif kospi_ratio > kosdaq_ratio:
             return "KOSPI"
-        elif kosdaq_ratio > kospi_ratio:  # KOSDAQ이 더 많음
+        elif kosdaq_ratio > kospi_ratio:
             return "KOSDAQ"
         else:
-            # 비슷하거나 기타 종목이 많은 경우 KOSPI 기본값
             return "KOSPI"
     
     async def get_benchmark_returns(
@@ -148,7 +139,6 @@ class BenchmarkService:
             pd.Series: 일별 수익률 시계열 (날짜가 인덱스)
         """
         try:
-            # 벤치마크 가격 데이터 조회
             query = (
                 select(BenchmarkPrice)
                 .where(
@@ -173,7 +163,6 @@ class BenchmarkService:
                 )
                 return pd.Series(dtype=float)
             
-            # DataFrame으로 변환
             data = []
             for price in benchmark_prices:
                 data.append({
@@ -185,7 +174,6 @@ class BenchmarkService:
             df = df.set_index('datetime')
             df = df.sort_index()
             
-            # 수익률 계산
             returns = df['close_price'].pct_change().fillna(0)
             
             logger.info(
@@ -204,7 +192,6 @@ class BenchmarkService:
                 benchmark_code=benchmark_code,
                 error=str(e)
             )
-            # 트랜잭션 실패로 인한 에러는 더 명확한 메시지와 함께 전파
             if "InFailedSQLTransaction" in str(e) or "transaction is aborted" in str(e):
                 raise Exception(f"Database transaction failed during benchmark retrieval: {str(e)}")
             return pd.Series(dtype=float)
@@ -220,7 +207,7 @@ class BenchmarkService:
             
         except Exception as e:
             logger.error(f"Failed to get available benchmarks: {str(e)}")
-            return ["KOSPI", "KOSDAQ"]  # 기본값
+            return ["KOSPI", "KOSDAQ"]
     
     async def validate_benchmark(
         self,
@@ -243,7 +230,6 @@ class BenchmarkService:
     ) -> Optional[Dict[str, any]]:
         """벤치마크 지수 정보 조회"""
         try:
-            # 가장 최근 데이터 조회
             query = (
                 select(BenchmarkPrice)
                 .where(BenchmarkPrice.index_code == benchmark_code)
@@ -257,7 +243,6 @@ class BenchmarkService:
             if not latest_price:
                 return None
             
-            # 데이터 범위 조회
             min_max_query = (
                 select(
                     BenchmarkPrice.datetime.label('min_date'),

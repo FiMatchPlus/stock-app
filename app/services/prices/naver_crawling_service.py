@@ -26,7 +26,6 @@ class NaverCrawlingService:
         self.max_retries = 3
         self.retry_delay = 1.0
         
-        # HTTP 헤더 설정
         self.headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
         }
@@ -38,13 +37,12 @@ class NaverCrawlingService:
                 try:
                     response = await client.get(url, headers=self.headers)
                     response.raise_for_status()
-                    # 한글 인코딩 설정
                     response.encoding = 'euc-kr'
                     return response.text
                 
                 except httpx.HTTPStatusError as e:
                     logger.error(
-                        "HTTP request failed",
+                        "HTTP 요청 실패",
                         url=url,
                         status_code=e.response.status_code,
                         attempt=attempt + 1
@@ -57,7 +55,7 @@ class NaverCrawlingService:
                 
                 except httpx.RequestError as e:
                     logger.error(
-                        "HTTP request error",
+                        "HTTP 요청 오류",
                         url=url,
                         error=str(e),
                         attempt=attempt + 1
@@ -79,42 +77,34 @@ class NaverCrawlingService:
         try:
             soup = BeautifulSoup(html, 'html.parser')
             
-            # 일별시세 테이블 찾기 (첫 번째 테이블)
             tables = soup.find_all('table')
             if not tables:
                 logger.warning(f"테이블을 찾을 수 없습니다. stock_code: {stock_code}")
                 return None
             
-            # 첫 번째 테이블 사용 (일별시세 테이블)
             table = tables[0]
             
-            # 테이블이 올바른 테이블인지 확인 (헤더에 '날짜'가 포함되어 있는지)
             header_row = table.find('tr')
             if not header_row:
                 logger.warning(f"헤더 행을 찾을 수 없습니다. stock_code: {stock_code}")
                 return None
             
-            # th와 td 모두 검색
             header_cells = header_row.find_all(['th', 'td'])
             if len(header_cells) < 7:
                 logger.warning(f"헤더 셀을 찾을 수 없습니다. stock_code: {stock_code}")
                 return None
             
-            # 첫 번째 셀이 '날짜'를 포함하는지 확인
             first_header = header_cells[0].get_text(strip=True)
             if '날짜' not in first_header:
                 logger.warning(f"올바른 테이블이 아닙니다. 헤더: {first_header}, stock_code: {stock_code}")
                 return None
             
-            # target_date 기본값: 어제(KST 기준)
             if target_date is None:
                 kst_now = datetime.now()
                 target_date = (kst_now - timedelta(days=1)).date()
             else:
-                # date 혹은 datetime이 들어오면 date로 통일
                 target_date = target_date.date() if isinstance(target_date, datetime) else target_date
 
-            # 테이블 행들 찾기 (헤더 제외)
             rows = table.find_all('tr')[1:]
             if not rows:
                 logger.warning(f"데이터 행을 찾을 수 없습니다. stock_code: {stock_code}")
@@ -134,16 +124,12 @@ class NaverCrawlingService:
                 except Exception:
                     continue
 
-                # 비교 로직
                 if row_date > target_date:
-                    # 미래 데이터 → 아래로 계속 진행
                     continue
                 if row_date < target_date:
-                    # 목표일보다 과거가 나오면 실패 처리
                     logger.warning(f"목표 날짜({target_date}) 이전 데이터만 남았습니다. stock_code: {stock_code}")
                     return None
 
-                # row_date == target_date → 데이터 추출 및 반환
                 close_price = cells[1].get_text(strip=True).replace(',', '')
                 change_info = cells[2].get_text(strip=True)
                 open_price = cells[3].get_text(strip=True).replace(',', '')
@@ -163,7 +149,6 @@ class NaverCrawlingService:
                     change_direction = '보합'
                     change_amount = '0'
 
-                # 쉼표 제거
                 change_amount = change_amount.replace(',', '') if change_amount else '0'
 
                 return {
@@ -178,7 +163,6 @@ class NaverCrawlingService:
                     'volume': volume
                 }
 
-            # 여기까지 오면 매칭 실패
             logger.warning(f"목표 날짜({target_date}) 데이터가 없습니다. stock_code: {stock_code}")
             return None
             
@@ -204,15 +188,12 @@ class NaverCrawlingService:
     def _convert_to_stock_price(self, data: Dict[str, Any]) -> Optional[StockPrice]:
         """크롤링 데이터를 StockPrice 모델로 변환"""
         try:
-            # 날짜를 datetime으로 변환
             date_obj = datetime.strptime(data['date'], '%Y.%m.%d')
             
-            # 전일비 금액 계산 (상승/하락에 따라 부호 결정)
             change_amount = Decimal(data['change_amount'])
             if data['change_direction'] == '하락':
                 change_amount = -change_amount
             
-            # StockPrice 객체 생성
             stock_price = StockPrice(
                 stock_code=data['stock_code'],
                 datetime=date_obj,
@@ -223,7 +204,6 @@ class NaverCrawlingService:
                 close_price=Decimal(data['close_price']),
                 volume=int(data['volume']),
                 change_amount=change_amount
-                # change_rate는 데이터베이스에서 자동 생성되므로 제외
             )
             
             return stock_price
@@ -236,32 +216,28 @@ class NaverCrawlingService:
         """특정 종목의 목표일 데이터 크롤링"""
         try:
             start_ts = datetime.now()
-            # URL 구성
             url = f"{self.base_url}?code={stock_code}"
             
             logger.info(f"주식 데이터 크롤링 시작: {stock_code}")
             
-            # HTTP 요청
             html = await self._make_request(url)
             
-            # HTML 파싱 (목표일 검색)
             data = self._parse_stock_data(html, stock_code, target_date)
             if not data:
                 duration_ms = int((datetime.now() - start_ts).total_seconds() * 1000)
                 logger.warning(
-                    "Crawl failed - parse returned no data",
+                    "크롤링 실패 - 파싱 결과 데이터 없음",
                     stock_code=stock_code,
                     target_date=(target_date.date() if isinstance(target_date, datetime) else target_date) if target_date else "yesterday",
                     duration_ms=duration_ms,
                 )
                 return None
             
-            # StockPrice 객체로 변환
             stock_price = self._convert_to_stock_price(data)
             if not stock_price:
                 duration_ms = int((datetime.now() - start_ts).total_seconds() * 1000)
                 logger.warning(
-                    "Crawl failed - conversion to StockPrice returned None",
+                    "크롤링 실패 - StockPrice 변환 결과 None",
                     stock_code=stock_code,
                     duration_ms=duration_ms,
                 )
@@ -269,7 +245,7 @@ class NaverCrawlingService:
             
             duration_ms = int((datetime.now() - start_ts).total_seconds() * 1000)
             logger.info(
-                "Crawl succeeded",
+                "크롤링 성공",
                 stock_code=stock_code,
                 interval_unit=stock_price.interval_unit,
                 date=str(stock_price.datetime.date()),
@@ -279,7 +255,7 @@ class NaverCrawlingService:
             
         except Exception as e:
             logger.error(
-                "Crawl exception",
+                "크롤링 예외",
                 error=str(e),
                 stock_code=stock_code,
             )
@@ -307,7 +283,7 @@ class NaverCrawlingService:
                     results.append(res)
 
         logger.info(
-            "Concurrent crawl started",
+            "동시 크롤링 시작",
             total_symbols=len(stock_codes),
             concurrency=concurrency,
         )
@@ -316,7 +292,7 @@ class NaverCrawlingService:
         await asyncio.gather(*tasks, return_exceptions=True)
 
         logger.info(
-            "Concurrent crawl completed",
+            "동시 크롤링 완료",
             total_symbols=len(stock_codes),
             succeeded=len(results),
             failed=len(stock_codes) - len(results),
@@ -325,5 +301,4 @@ class NaverCrawlingService:
     
 
 
-# 전역 서비스 인스턴스
 naver_crawling_service = NaverCrawlingService()

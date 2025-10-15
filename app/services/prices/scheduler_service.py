@@ -24,12 +24,11 @@ class SchedulerService:
     """스케줄러 서비스"""
     
     def __init__(self):
-        # APScheduler 설정 개선
         self.scheduler = AsyncIOScheduler(
             job_defaults={
-                'coalesce': True,  # 지연된 작업들을 하나로 합침
-                'max_instances': 1,  # 동시 실행 인스턴스 수 제한
-                'misfire_grace_time': 300  # 5분 내에 실행되지 않은 작업은 건너뜀
+                'coalesce': True,
+                'max_instances': 1,
+                'misfire_grace_time': 300
             }
         )
         self.is_running = False
@@ -40,13 +39,12 @@ class SchedulerService:
             logger.warning("스케줄러가 이미 실행 중입니다.")
             return
         
-        # 매일 새벽 2시 KST에 실행
         self.scheduler.add_job(
             func=self._crawl_daily_stock_data,
             trigger=CronTrigger(
-                hour=2,  # 새벽 2시
-                minute=0,  # 0분
-                timezone='Asia/Seoul'  # KST
+                hour=2,
+                minute=0,
+                timezone='Asia/Seoul'
             ),
             id='daily_stock_crawling',
             name='Daily Stock Data Crawling',
@@ -72,13 +70,10 @@ class SchedulerService:
         logger.info("일일 주식 데이터 크롤링 작업을 시작합니다.")
         
         try:
-            # 크롤링 시작 시간 기록 (KST)
             kst = timezone(timedelta(hours=9))
             start_time = datetime.now(kst)
             logger.info(f"크롤링 시작 시간 (KST): {start_time}")
-            # 데이터베이스 세션 생성
             async with AsyncSessionLocal() as db:
-                # stocks 테이블에서 모든 활성화된 종목의 ticker 조회
                 result = await db.execute(
                     select(Stock.ticker).where(Stock.is_active == 'Y')
                 )
@@ -90,8 +85,6 @@ class SchedulerService:
                 
                 logger.info(f"총 {len(stock_codes)}개 종목의 데이터를 크롤링합니다.")
                 
-                # 여러 종목 크롤링 (서비스 기본 규칙: 목표일 기본 어제)
-                # 동시 50개로 처리하여 전체 시간을 단축
                 stock_prices = await naver_crawling_service.crawl_multiple_stocks_concurrent(
                     stock_codes=stock_codes,
                     concurrency=50
@@ -101,20 +94,18 @@ class SchedulerService:
                     logger.warning("크롤링된 데이터가 없습니다.")
                     return
                 
-                # 데이터베이스에 저장
                 saved_count = await self._save_stock_prices(db, stock_prices)
                 
                 logger.info(f"일일 주식 데이터 크롤링 완료. {saved_count}개 데이터가 저장되었습니다.")
                 
         except Exception as e:
-            # 예외 정보를 더 자세히 로깅
             error_msg = str(e) if e else "Unknown error"
             error_type = type(e).__name__ if e else "UnknownError"
             logger.error(
                 f"일일 주식 데이터 크롤링 오류: {error_msg}",
                 error_type=error_type,
                 error_message=error_msg,
-                exc_info=True  # 스택 트레이스 포함
+                exc_info=True
             )
     
     async def _save_stock_prices(self, db: AsyncSession, stock_prices: List[StockPrice]) -> int:
@@ -122,7 +113,6 @@ class SchedulerService:
         if not stock_prices:
             return 0
         
-        # 1) 배치 저장 시도
         try:
             db.add_all(stock_prices)
             await db.commit()
@@ -139,7 +129,6 @@ class SchedulerService:
                 exc_info=True
             )
         
-        # 2) 개별 저장 재시도 (충돌 항목 건너뜀)
         saved_count = 0
         for sp in stock_prices:
             try:
@@ -182,5 +171,4 @@ class SchedulerService:
         }
 
 
-# 전역 스케줄러 서비스 인스턴스
 scheduler_service = SchedulerService()

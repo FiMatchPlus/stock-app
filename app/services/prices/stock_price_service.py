@@ -197,9 +197,7 @@ class StockPriceService:
             
             api_service = ExternalAPIService()
             
-            # 외부 API에서 데이터 수집
             if len(collection_request.symbols) == 1:
-                # 단일 종목
                 symbol = collection_request.symbols[0]
                 prices_data = await api_service.collect_stock_prices(
                     symbol=symbol,
@@ -208,13 +206,11 @@ class StockPriceService:
                     end_date=collection_request.end_date
                 )
                 
-                # 데이터베이스에 저장
                 upserted_prices = await self.bulk_upsert_stock_prices(prices_data)
                 
                 return {symbol: upserted_prices}
             
             else:
-                # 다중 종목
                 prices_data_dict = await api_service.collect_multiple_stock_prices(
                     symbols=collection_request.symbols,
                     interval=collection_request.interval,

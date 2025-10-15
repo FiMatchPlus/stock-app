@@ -33,7 +33,6 @@ class KISAPIService:
         self.max_retries = 3
         self.retry_delay = 1.0
         
-        # KIS API 설정
         self.kis_base_url = settings.kis_base_url
     
     async def _make_request(
@@ -41,7 +40,7 @@ class KISAPIService:
         method: str, 
         endpoint: str, 
         params: Optional[Dict[str, Any]] = None,
-        tr_id: Optional[str] = None  # 요청마다 달라야 하는 tr_id
+        tr_id: Optional[str] = None
     ) -> Dict[str, Any]:
         """KIS API 요청 실행"""
         
@@ -50,10 +49,8 @@ class KISAPIService:
         
         url = f"{self.kis_base_url}{endpoint}"
         
-        # KIS API 토큰 자동 관리
         access_token = await korea_investment_token_service.get_valid_token()
         
-        # KIS API 필수 헤더 설정 (외부에서 수정 불가)
         headers = {
             "Content-Type": "application/json; charset=utf-8", 
             "Authorization": f"Bearer {access_token}",
@@ -101,7 +98,6 @@ class KISAPIService:
                     await asyncio.sleep(self.retry_delay * (2 ** attempt))
     
     
-    # KIS API 메서드들
     async def get_kis_stock_info(self, symbol: str) -> Dict[str, Any]:
         """KIS API로 종목 정보 조회"""
         endpoint = f"/uapi/domestic-stock/v1/quotations/inquire-price"
@@ -109,7 +105,6 @@ class KISAPIService:
             "fid_cond_mrkt_div_code": "J",
             "fid_input_iscd": symbol
         }
-        # tr_id: HHKST01010100 (종목 현재가 조회)
         return await self._make_request("GET", endpoint, params=params, tr_id="HHKST01010100")
     
     async def get_kis_stock_prices(
@@ -128,7 +123,6 @@ class KISAPIService:
             "fid_period_div_code": period,
             "fid_org_adj_prc": "1"
         }
-        # tr_id: HHKST01010400 (일봉 차트 조회)
         return await self._make_request("GET", endpoint, params=params, tr_id="HHKST01010400")
     
     async def get_kis_market_summary(self) -> Dict[str, Any]:
@@ -143,12 +137,9 @@ class KISAPIService:
             "fid_period_div_code": "D",
             "fid_org_adj_prc": "1"
         }
-        # tr_id: HHKST01010600 (지수 차트 조회)
         return await self._make_request("GET", endpoint, params=params, tr_id="HHKST01010600")
     
     async def search_kis_stocks(self, query: str) -> Dict[str, Any]:
         """KIS API로 종목 검색 (실제로는 종목 정보 조회)"""
-        # KIS API에는 별도의 종목 검색 엔드포인트가 없으므로
-        # 종목 코드로 직접 조회하는 방식 사용
         return await self.get_kis_stock_info(query)
 

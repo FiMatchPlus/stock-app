@@ -33,7 +33,6 @@ class BenchmarkService:
             (security_selection, timing_effect) 튜플
         """
         try:
-            # 최신 윈도우의 비중과 기대수익률
             if not optimization_results.get('expected_returns'):
                 logger.warning("No expected returns data for attribution")
                 return 0.0, 0.0
@@ -41,7 +40,6 @@ class BenchmarkService:
             latest_expected_returns = optimization_results['expected_returns'][-1]
             latest_weights = optimization_results['latest_weights'][portfolio_type]
             
-            # 각 종목의 수익률 기여도 계산
             total_contribution = 0.0
             stock_contributions = {}
             
@@ -51,16 +49,12 @@ class BenchmarkService:
                 stock_contributions[stock_code] = contribution
                 total_contribution += contribution
             
-            # 종목 선택 효과: 각 종목의 초과수익률 기여도
-            # 종목 i의 초과기여도 = w_i × (r_i - r_benchmark)
             security_selection = 0.0
             for stock_code, weight in latest_weights.items():
                 expected_return = latest_expected_returns.get(stock_code, 0.0)
                 excess_contribution = weight * (expected_return - benchmark_return)
                 security_selection += excess_contribution
             
-            # 타이밍 효과: 나머지 초과수익률
-            # (실제로는 시간에 따른 비중 변화 효과지만, 현재는 단순화)
             portfolio_return = total_contribution
             excess_return = portfolio_return - benchmark_return
             timing_effect = excess_return - security_selection
@@ -75,20 +69,17 @@ class BenchmarkService:
             
         except Exception as e:
             logger.error(f"Error calculating return attribution: {str(e)}")
-            # Fallback to simple split
             return 0.0, 0.0
     
     async def _determine_benchmark(self, request, benchmark_repo) -> str:
         """적절한 벤치마크 결정"""
         if request.benchmark:
-            # 사용자가 지정한 벤치마크가 있는지 확인
             available_benchmarks = await benchmark_repo.get_available_benchmarks()
             if request.benchmark in available_benchmarks:
                 return request.benchmark
             else:
                 logger.warning(f"Requested benchmark {request.benchmark} not available, falling back to KOSPI")
         
-        # 기본적으로 KOSPI 사용
         return "KOSPI"
 
     async def _calculate_benchmark_comparison(
@@ -102,29 +93,22 @@ class BenchmarkService:
             if benchmark_returns.empty:
                 return None
             
-            # 백테스팅 기간의 포트폴리오 수익률
             mv_returns = [r['min_downside_risk'] for r in optimization_results['portfolio_returns']]
             ms_returns = [r['max_sortino'] for r in optimization_results['portfolio_returns']]
             
-            # 최대 소르티노 포트폴리오를 기준으로 비교 분석
             portfolio_returns = pd.Series(ms_returns)
             
-            # 벤치마크 수익률 조정
             benchmark_period_returns = self._align_benchmark_returns(benchmark_returns, optimization_results['dates'])
             
-            # 벤치마크 통계
             benchmark_annual_return = benchmark_period_returns.mean() * 252.0
             benchmark_volatility = benchmark_period_returns.std() * np.sqrt(252)
             
-            # 포트폴리오 통계
             portfolio_annual_return = portfolio_returns.mean() * 252.0
             portfolio_volatility = portfolio_returns.std() * np.sqrt(252)
             
-            # 초과 성과
             excess_return = portfolio_annual_return - benchmark_annual_return
             relative_volatility = portfolio_volatility / benchmark_volatility if benchmark_volatility > 0 else 1.0
             
-            # 수익률 기여도 분석 (최신 윈도우 기준)
             security_selection, timing_effect = self._calculate_return_attribution(
                 optimization_results, 
                 benchmark_annual_return,
@@ -184,8 +168,6 @@ class BenchmarkService:
                 portfolio_volatility / benchmark_volatility if benchmark_volatility > 0 else 1.0
             )
             
-            # 사용자 포트폴리오의 수익률 기여도 계산
-            # 각 종목의 기여도 = w_i × r_i
             security_selection = 0.0
             for h in request.holdings:
                 if h.code in available:
@@ -193,11 +175,9 @@ class BenchmarkService:
                     stock_returns = returns_df[h.code]
                     stock_aligned = stock_returns.loc[common_idx]
                     stock_annual_return = stock_aligned.mean() * 252.0
-                    # 종목의 초과기여도 = w_i × (r_i - r_benchmark)
                     excess_contribution = stock_weight * (stock_annual_return - benchmark_annual_return)
                     security_selection += excess_contribution
             
-            # 타이밍 효과는 나머지
             timing_effect = excess_return - security_selection
             
             return BenchmarkComparison(
@@ -225,28 +205,22 @@ class BenchmarkService:
             if benchmark_returns.empty:
                 return None
             
-            # 백테스팅 기간의 포트폴리오 수익률 추출
             portfolio_returns = [r[portfolio_type] for r in optimization_results['portfolio_returns']]
             portfolio_returns_series = pd.Series(portfolio_returns)
             
-            # 벤치마크 수익률과 동기화
             benchmark_period_returns = self._align_benchmark_returns(
                 benchmark_returns, optimization_results['dates']
             )
             
-            # 벤치마크 통계
             benchmark_annual_return = benchmark_period_returns.mean() * 252.0
             benchmark_volatility = benchmark_period_returns.std() * np.sqrt(252)
             
-            # 포트폴리오 통계
             portfolio_annual_return = portfolio_returns_series.mean() * 252.0
             portfolio_volatility = portfolio_returns_series.std() * np.sqrt(252)
             
-            # 초과 성과
             excess_return = portfolio_annual_return - benchmark_annual_return
             relative_volatility = portfolio_volatility / benchmark_volatility if benchmark_volatility > 0 else 1.0
             
-            # 수익률 기여도 분석
             security_selection, timing_effect = self._calculate_return_attribution(
                 optimization_results,
                 benchmark_annual_return,

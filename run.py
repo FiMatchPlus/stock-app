@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """서버 실행 스크립트"""
 
 import uvicorn
