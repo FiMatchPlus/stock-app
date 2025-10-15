@@ -60,7 +60,7 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
         # 실행 시간 측정 시작
         start_time = time.time()
 
-        # 전체 분석 기간 설정 (최소 5년 권장)
+        # 전체 분석 기간 설정
         analysis_end = datetime.utcnow()
         analysis_start = analysis_end - timedelta(days=252 * max(request.lookback_years, 5))
 

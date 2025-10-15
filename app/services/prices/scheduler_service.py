@@ -162,53 +162,6 @@ class SchedulerService:
         logger.info(f"개별 저장 완료: {saved_count}/{len(stock_prices)}개")
         return saved_count
     
-    async def run_manual_crawling(self, stock_codes: List[str] = None) -> dict:
-        """수동 크롤링 실행 (테스트용)"""
-        logger.info("수동 크롤링을 시작합니다.")
-        
-        try:
-            async with AsyncSessionLocal() as db:
-                if stock_codes is None:
-                    # stocks 테이블에서 모든 활성화된 종목의 ticker 조회
-                    result = await db.execute(
-                        select(Stock.ticker).where(Stock.is_active == 'Y')
-                    )
-                    stock_codes = [row[0] for row in result.fetchall()]
-                
-                if not stock_codes:
-                    return {"success": False, "message": "활성화된 종목이 없습니다."}
-                
-                # 크롤링 실행 (동시 50개 처리)
-                stock_prices = await naver_crawling_service.crawl_multiple_stocks_concurrent(
-                    stock_codes=stock_codes,
-                    concurrency=50
-                )
-                
-                if not stock_prices:
-                    return {"success": False, "message": "크롤링된 데이터가 없습니다."}
-                
-                # 데이터베이스에 저장
-                saved_count = await self._save_stock_prices(db, stock_prices)
-                
-                return {
-                    "success": True,
-                    "message": f"{saved_count}개 데이터가 저장되었습니다.",
-                    "crawled_count": len(stock_prices),
-                    "saved_count": saved_count
-                }
-                
-        except Exception as e:
-            # 예외 정보를 더 자세히 로깅
-            error_msg = str(e) if e else "Unknown error"
-            error_type = type(e).__name__ if e else "UnknownError"
-            logger.error(
-                f"수동 크롤링 오류: {error_msg}",
-                error_type=error_type,
-                error_message=error_msg,
-                exc_info=True
-            )
-            return {"success": False, "message": f"크롤링 오류: {error_msg}"}
-    
     def get_scheduler_status(self) -> dict:
         """스케줄러 상태 조회"""
         if not self.is_running:
