@@ -109,7 +109,7 @@ model_test_v1/
 - Pydantic 스키마 (API 요청/응답 검증)
 
 
-## 🔧 기술 스택
+## 기술 스택
 
 - **Framework**: FastAPI 0.104.1
 - **Database**: PostgreSQL (with SQLAlchemy 2.0.23, asyncpg)
