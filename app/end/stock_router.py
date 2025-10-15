@@ -44,10 +44,10 @@ async def collect_stock_prices_by_symbol(
     
     try:
         # 시간간격 검증
-        if interval not in ["1Y", "1M", "1d", "1W"]:
+        if interval not in ["1d"]:
             raise HTTPException(
                 status_code=400,
-                detail="Invalid interval. Must be one of: 1Y, 1M, 1d, 1W"
+                detail="Invalid interval."
             )
         
         # 서비스 초기화
