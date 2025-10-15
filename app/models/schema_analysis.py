@@ -15,7 +15,7 @@ class AnalysisHoldingInput(BaseModel):
 
 
 class AnalysisRequest(BaseModel):
-    """포트폴리오 분석 요청 스키마 (MPT/CAPM)"""
+    """포트폴리오 분석 요청 스키마"""
     holdings: List[AnalysisHoldingInput] = Field(..., min_items=1, description="보유 종목 목록")
     callback_url: str = Field(..., description="결과를 받을 콜백 URL (비동기 처리 시 필수)")
     portfolio_id: int = Field(..., description="포트폴리오 ID (콜백 시 그대로 반환)")
@@ -25,7 +25,7 @@ class AnalysisRequest(BaseModel):
 
 
 class BetaAnalysis(BaseModel):
-    """베타 분석 정보 (간소화)"""
+    """베타 분석 정보"""
     beta: float = Field(..., description="시장 베타 (벤치마크 대비 민감도)")
     r_square: float = Field(..., description="결정계수 (모델 설명력, 0~1)")
     alpha: float = Field(..., description="알파 (초과 수익률)")

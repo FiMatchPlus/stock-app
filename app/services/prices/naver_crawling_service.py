@@ -187,7 +187,7 @@ class NaverCrawlingService:
             return None
     
     def _validate_date(self, date_text: str, target_date: Optional[datetime] = None) -> bool:
-        """날짜 유효성 검증: target_date와 동일한지 확인 (기본은 어제)"""
+        """날짜 유효성 검증: target_date와 동일한지 확인 (default는 작일)"""
         try:
             if target_date is None:
                 kst_now = datetime.now()

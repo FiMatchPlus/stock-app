@@ -21,7 +21,6 @@ from app.models.schemas import (
     ErrorResponse
 )
 from app.services.analysis_service import AnalysisService
-from app.services.prices.data_collection_service import DataCollectionService
 from app.repositories.benchmark_repository import BenchmarkRepository
 from app.repositories.risk_free_rate_repository import RiskFreeRateRepository
 from app.utils.logger import get_logger
@@ -33,12 +32,6 @@ router = APIRouter(prefix="/analysis", tags=["analysis"])
 
 async def get_analysis_service() -> AnalysisService:
     return AnalysisService()
-
-
-
-
-async def get_data_collection_service() -> DataCollectionService:
-    return DataCollectionService()
 
 
 
@@ -308,44 +301,6 @@ async def get_available_risk_free_rates(
 
 
 @router.get(
-    "/risk-free-rate/{rate_type}/current",
-    response_model=Optional[RiskFreeRateResponse],
-    summary="현재 무위험수익률 조회",
-    description="지정된 유형의 현재 무위험수익률을 조회합니다."
-)
-async def get_current_risk_free_rate(
-    rate_type: str,
-    session: AsyncSession = Depends(get_async_session),
-) -> Optional[RiskFreeRateResponse]:
-    try:
-        repo = RiskFreeRateRepository(session)
-        rate_data = await repo.get_latest_risk_free_rate(rate_type)
-        return rate_data
-    except Exception as e:
-        logger.error(f"Failed to retrieve current risk-free rate for {rate_type}", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.get(
-    "/benchmark/{index_code}/current",
-    response_model=Optional[BenchmarkPriceResponse],
-    summary="현재 벤치마크 가격 조회",
-    description="지정된 지수의 현재 가격 정보를 조회합니다."
-)
-async def get_current_benchmark_price(
-    index_code: str,
-    session: AsyncSession = Depends(get_async_session),
-) -> Optional[BenchmarkPriceResponse]:
-    try:
-        repo = BenchmarkRepository(session)
-        price_data = await repo.get_latest_benchmark_price(index_code)
-        return price_data
-    except Exception as e:
-        logger.error(f"Failed to retrieve current benchmark price for {index_code}", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post(
     "/data/validate",
     summary="데이터 무결성 검증",
     description="지정된 기간의 벤치마크 및 무위험수익률 데이터 무결성을 검증합니다."
@@ -354,59 +309,56 @@ async def validate_data_integrity(
     start_date: datetime,
     end_date: datetime,
     session: AsyncSession = Depends(get_async_session),
-    data_service: DataCollectionService = Depends(get_data_collection_service),
 ) -> Dict:
+    """벤치마크 및 무위험수익률 데이터 무결성 검증 (조회 전용)"""
     try:
-        validation_result = await data_service.validate_data_integrity(
-            session, start_date, end_date
-        )
-        return validation_result
+        benchmark_repo = BenchmarkRepository(session)
+        risk_free_repo = RiskFreeRateRepository(session)
+        
+        # 사용 가능한 벤치마크와 금리 유형 조회
+        available_benchmarks = await benchmark_repo.get_available_benchmarks()
+        available_rates = await risk_free_repo.get_available_rate_types()
+        
+        # 각 벤치마크별 데이터 coverage 확인
+        benchmark_coverage = {}
+        for benchmark in available_benchmarks:
+            benchmark_data = await benchmark_repo.get_benchmark_prices(
+                [benchmark], start_date, end_date
+            )
+            coverage_ratio = len(benchmark_data) / max((end_date - start_date).days, 1)
+            benchmark_coverage[benchmark] = {
+                'record_count': len(benchmark_data),
+                'coverage_ratio': coverage_ratio,
+                'complete': coverage_ratio > 0.8  # 80% 이상이면 완전한 것으로 간주
+            }
+        
+        # 각 금리별 데이터 coverage 확인
+        rate_coverage = {}
+        for rate_type in available_rates:
+            rate_data = await risk_free_repo.get_risk_free_rate_series(
+                start_date, end_date, rate_type
+            )
+            coverage_ratio = len(rate_data) / max((end_date - start_date).days, 1)
+            rate_coverage[rate_type] = {
+                'record_count': len(rate_data),
+                'coverage_ratio': coverage_ratio,
+                'complete': coverage_ratio > 0.8
+            }
+        
+        return {
+            'validation_period': {
+                'start': start_date.isoformat(),
+                'end': end_date.isoformat(),
+                'days': (end_date - start_date).days
+            },
+            'benchmark_coverage': benchmark_coverage,
+            'risk_free_rate_coverage': rate_coverage,
+            'overall_status': 'healthy' if all(
+                cov['complete'] for cov in {**benchmark_coverage, **rate_coverage}.values()
+            ) else 'incomplete'
+        }
     except Exception as e:
         logger.error("Failed to validate data integrity", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post(
-    "/data/update-benchmarks",
-    summary="벤치마크 데이터 업데이트",
-    description="벤치마크 지수 데이터를 최신으로 업데이트합니다."
-)
-async def update_benchmark_data(
-    index_codes: Optional[List[str]] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    session: AsyncSession = Depends(get_async_session),
-    data_service: DataCollectionService = Depends(get_data_collection_service),
-) -> Dict[str, int]:
-    try:
-        update_result = await data_service.update_benchmark_data(
-            session, index_codes, start_date, end_date
-        )
-        return update_result
-    except Exception as e:
-        logger.error("Failed to update benchmark data", error=str(e))
-        raise HTTPException(status_code=500, detail=str(e))
-
-
-@router.post(
-    "/data/update-risk-free-rates",
-    summary="무위험수익률 데이터 업데이트",
-    description="무위험수익률 데이터를 최신으로 업데이트합니다."
-)
-async def update_risk_free_rates(
-    rate_types: Optional[List[str]] = None,
-    start_date: Optional[datetime] = None,
-    end_date: Optional[datetime] = None,
-    session: AsyncSession = Depends(get_async_session),
-    data_service: DataCollectionService = Depends(get_data_collection_service),
-) -> Dict[str, int]:
-    try:
-        update_result = await data_service.update_risk_free_rates(
-            session, rate_types, start_date, end_date
-        )
-        return update_result
-    except Exception as e:
-        logger.error("Failed to update risk-free rates", error=str(e))
         raise HTTPException(status_code=500, detail=str(e))
 
 

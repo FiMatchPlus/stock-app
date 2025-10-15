@@ -1,5 +1,3 @@
-"""Pydantic 스키마 정의 (도메인별 모듈 재노출)"""
-
 from typing import Dict
 
 # Common

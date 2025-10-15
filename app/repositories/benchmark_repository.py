@@ -74,23 +74,6 @@ class BenchmarkRepository(BaseRepository[BenchmarkPrice]):
             logger.error(f"Error retrieving benchmark prices: {str(e)}")
             raise
 
-    async def get_latest_benchmark_price(self, index_code: str) -> Optional[BenchmarkPrice]:
-        """특정 지수의 최신 가격 조회"""
-        try:
-            stmt = (
-                select(BenchmarkPrice)
-                .where(BenchmarkPrice.index_code == index_code)
-                .order_by(desc(BenchmarkPrice.datetime))
-                .limit(1)
-            )
-            
-            result = await self.session.execute(stmt)
-            return result.scalar_one_or_none()
-
-        except Exception as e:
-            logger.error(f"Error retrieving latest benchmark price for {index_code}: {str(e)}")
-            raise
-
     async def get_available_benchmarks(self) -> List[str]:
         """사용 가능한 벤치마크 지수 목록 조회"""
         try:
@@ -130,39 +113,4 @@ class BenchmarkRepository(BaseRepository[BenchmarkPrice]):
 
         except Exception as e:
             logger.error(f"Error calculating benchmark returns for {index_code}: {str(e)}")
-            raise
-
-    async def get_benchmark_statistics(
-        self,
-        index_code: str,
-        start_date: datetime,
-        end_date: datetime
-    ) -> Dict[str, float]:
-        """벤치마크 통계 정보 조회"""
-        try:
-            returns_series = await self.get_benchmark_returns_series(index_code, start_date, end_date)
-            
-            if returns_series.empty:
-                return {}
-            
-            # 연환산 통계 계산
-            annual_return = returns_series.mean() * 252
-            annual_volatility = returns_series.std() * (252 ** 0.5)
-            total_return = (1 + returns_series).prod() - 1
-            
-            # 기간 연환산 수익률
-            days = len(returns_series)
-            annualized_return = (1 + total_return) ** (252 / days) - 1 if days > 0 else 0
-            
-            return {
-                'total_return': float(total_return),
-                'annualized_return': float(annualized_return),
-                'annual_volatility': float(annual_volatility),
-                'daily_mean_return': float(returns_series.mean()),
-                'daily_volatility': float(returns_series.std()),
-                'observation_days': days
-            }
-
-        except Exception as e:
-            logger.error(f"Error calculating benchmark statistics for {index_code}: {str(e)}")
             raise

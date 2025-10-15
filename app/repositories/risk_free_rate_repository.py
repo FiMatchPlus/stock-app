@@ -122,23 +122,6 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
             logger.error(f"Error retrieving available rate types: {str(e)}")
             raise
 
-    async def get_latest_risk_free_rate(self, rate_type: str = "CD91") -> Optional[RiskFreeRate]:
-        """특정 금리 유형의 최신 무위험수익률 조회"""
-        try:
-            stmt = (
-                select(RiskFreeRate)
-                .where(RiskFreeRate.rate_type == rate_type)
-                .order_by(desc(RiskFreeRate.datetime))
-                .limit(1)
-            )
-            
-            result = await self.session.execute(stmt)
-            return result.scalar_one_or_none()
-
-        except Exception as e:
-            logger.error(f"Error retrieving latest risk-free rate for {rate_type}: {str(e)}")
-            raise
-
     async def interpolate_missing_rates(
         self,
         rate_series: pd.Series,
@@ -164,32 +147,3 @@ class RiskFreeRateRepository(BaseRepository[RiskFreeRate]):
         except Exception as e:
             logger.error(f"Error interpolating risk-free rates: {str(e)}")
             raise
-
-    async def get_risk_free_rate_stats(
-        self,
-        start_date: datetime,
-        end_date: datetime,
-        rate_type: str = "CD91"
-    ) -> Dict[str, float]:
-        """무위험수익률 통계 정보 조회"""
-        try:
-            rate_series = await self.get_risk_free_rate_series(start_date, end_date, rate_type)
-            
-            if rate_series.empty:
-                return {}
-            
-            return {
-                'mean_rate': float(rate_series.mean()),
-                'median_rate': float(rate_series.median()),
-                'std_rate': float(rate_series.std()),
-                'min_rate': float(rate_series.min()),
-                'max_rate': float(rate_series.max()),
-                'current_rate': float(rate_series.iloc[-1]) if len(rate_series) > 0 else 0.0,
-                'observation_days': len(rate_series)
-            }
-
-        except Exception as e:
-            logger.error(f"Error calculating risk-free rate statistics: {str(e)}")
-            raise
-
-
