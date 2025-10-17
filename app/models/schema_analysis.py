@@ -35,7 +35,6 @@ class AnalysisMetrics(BaseModel):
     """포트폴리오 성과 지표"""
     expected_return: float = Field(..., description="기대수익률 (연환산)")
     std_deviation: float = Field(..., description="표준편차 (연환산)")
-    jensen_alpha: float = Field(..., description="젠센 알파")
     tracking_error: float = Field(..., description="트래킹 에러")
     sharpe_ratio: float = Field(..., description="샤프 비율")
     treynor_ratio: float = Field(..., description="트레이너 비율")
