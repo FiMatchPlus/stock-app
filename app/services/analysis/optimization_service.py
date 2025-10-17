@@ -60,9 +60,15 @@ class OptimizationService:
             min_var_weights = self._optimize_min_variance(semi_cov_matrix, expected_returns, risk_free_rate)
             max_sortino_weights = self._optimize_max_sortino(expected_returns, semi_cov_matrix, risk_free_rate)
             
-            if end_idx < total_days - backtest_days:
-                next_period_prices = prices_df.iloc[end_idx:end_idx + backtest_days]
+            remaining_days = total_days - end_idx
+            min_backtest_days = 5
+            
+            if remaining_days >= min_backtest_days:
+                actual_backtest_days = min(remaining_days, backtest_days)
+                next_period_prices = prices_df.iloc[end_idx:end_idx + actual_backtest_days]
                 next_period_returns = next_period_prices.pct_change().dropna()
+                
+                logger.debug(f"윈도우 백테스트: {actual_backtest_days}일 데이터, {len(next_period_returns)}개 수익률")
                 
                 mv_portfolio_returns = next_period_returns.dot(min_var_weights)
                 ms_portfolio_returns = next_period_returns.dot(max_sortino_weights)
@@ -73,6 +79,7 @@ class OptimizationService:
                 mv_portfolio_return = float(mv_portfolio_returns.mean())
                 ms_portfolio_return = float(ms_portfolio_returns.mean())
             else:
+                logger.debug(f"윈도우 백테스트 건너뜀: 남은 데이터 {remaining_days}일 < 최소 {min_backtest_days}일")
                 mv_portfolio_return = 0.0
                 ms_portfolio_return = 0.0
                 mv_var = mv_cvar = ms_var = ms_cvar = 0.0
@@ -233,12 +240,69 @@ class OptimizationService:
         - 각 종목 최소 비중: 5% (0.05)
         - 각 종목 최대 비중: 100% (1.0)
         - 비중 합계: 100% (1.0)
+        - 기대수익률 >= 무위험수익률 + 0.5%p (소르티노 비율 양수 보장)
         
         Args:
             expected_returns: 기대수익률 벡터
             cov_matrix: Semi-covariance 행렬 (하방위험)
             risk_free_rate: 무위험수익률
         """
+        n_assets = len(expected_returns)
+        min_weight = 0.05
+        min_return_premium = 0.005
+        
+        def objective(weights):
+            portfolio_return = np.dot(weights, expected_returns.values)
+            portfolio_downside_variance = np.dot(weights, np.dot(cov_matrix.values, weights))
+            portfolio_downside_std = np.sqrt(max(portfolio_downside_variance, 1e-8))
+            sortino_ratio = (portfolio_return - risk_free_rate) / portfolio_downside_std
+            return -sortino_ratio
+        
+        def return_constraint(weights):
+            portfolio_return = np.dot(weights, expected_returns.values)
+            min_required_return = risk_free_rate + min_return_premium
+            return portfolio_return - min_required_return
+        
+        constraints = [
+            {'type': 'eq', 'fun': lambda x: np.sum(x) - 1},
+            {'type': 'ineq', 'fun': return_constraint}
+        ]
+        bounds = tuple((min_weight, 1) for _ in range(n_assets))
+        
+        x0 = np.ones(n_assets) / n_assets
+        
+        try:
+            result = minimize(objective, x0, method='SLSQP', bounds=bounds, constraints=constraints)
+            if result.success:
+                weights = pd.Series(result.x, index=expected_returns.index)
+                weights = weights / weights.sum()
+                
+                portfolio_return = np.dot(weights.values, expected_returns.values)
+                min_required = risk_free_rate + min_return_premium
+                
+                if portfolio_return >= min_required:
+                    logger.info(f"최대 소르티노 최적화 성공 (수익률 제약 포함): "
+                              f"expected_return={portfolio_return:.4f} >= {min_required:.4f}")
+                    return weights
+                else:
+                    logger.warning(f"수익률 제약 미충족: {portfolio_return:.4f} < {min_required:.4f}")
+                    return self._optimize_max_sortino_without_return_constraint(expected_returns, cov_matrix, risk_free_rate)
+            else:
+                logger.warning("수익률 제약 포함 최대 소르티노 최적화 실패, 제약 없이 재시도")
+                return self._optimize_max_sortino_without_return_constraint(expected_returns, cov_matrix, risk_free_rate)
+        except Exception as e:
+            logger.error(f"최대 소르티노 최적화 오류: {e}, 제약 없는 버전으로 폴백")
+            return self._optimize_max_sortino_without_return_constraint(expected_returns, cov_matrix, risk_free_rate)
+
+    def _fallback_min_variance_weights(self, cov_matrix: pd.DataFrame) -> pd.Series:
+        """최소 하방위험 최적화 실패 시 대체 방법 (inverse semi-variance)"""
+        diag_var = np.diag(cov_matrix.values)
+        inv_var = np.where(diag_var > 0, 1.0 / diag_var, 0.0)
+        w = inv_var / inv_var.sum() if inv_var.sum() > 0 else np.ones_like(inv_var) / len(inv_var)
+        return pd.Series(w, index=cov_matrix.columns)
+
+    def _optimize_max_sortino_without_return_constraint(self, expected_returns: pd.Series, cov_matrix: pd.DataFrame, risk_free_rate: float) -> pd.Series:
+        """최대 소르티노 비율 포트폴리오 최적화 (수익률 제약 없음 - fallback용)"""
         n_assets = len(expected_returns)
         min_weight = 0.05
         
@@ -265,13 +329,6 @@ class OptimizationService:
         except Exception as e:
             logger.error(f"최대 소르티노 최적화 오류: {e}")
             return self._fallback_max_sortino_weights(expected_returns, cov_matrix, risk_free_rate)
-
-    def _fallback_min_variance_weights(self, cov_matrix: pd.DataFrame) -> pd.Series:
-        """최소 하방위험 최적화 실패 시 대체 방법 (inverse semi-variance)"""
-        diag_var = np.diag(cov_matrix.values)
-        inv_var = np.where(diag_var > 0, 1.0 / diag_var, 0.0)
-        w = inv_var / inv_var.sum() if inv_var.sum() > 0 else np.ones_like(inv_var) / len(inv_var)
-        return pd.Series(w, index=cov_matrix.columns)
 
     def _fallback_max_sortino_weights(self, expected_returns: pd.Series, cov_matrix: pd.DataFrame, risk_free_rate: float) -> pd.Series:
         """최대 소르티노 최적화 실패 시 대체 방법 (하방위험 기준)"""

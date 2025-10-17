@@ -113,14 +113,10 @@ class MetricsService:
             var_value, cvar_value = 0.0, 0.0
         
         information_ratio = (expected_return - benchmark_annual_return) / tracking_error if tracking_error > 0 else 0.0
-        
-        capm_expected_return = risk_free_rate + beta * (benchmark_annual_return - risk_free_rate)
-        jensen_alpha = expected_return - capm_expected_return
 
         return AnalysisMetrics(
             expected_return=expected_return,
             std_deviation=std_deviation,
-            jensen_alpha=jensen_alpha,
             tracking_error=tracking_error,
             sharpe_ratio=sharpe_ratio,
             treynor_ratio=treynor_ratio,
@@ -249,8 +245,8 @@ class MetricsService:
         try:
             n = len(returns)
             
-            if n < 20:
-                logger.warning(f"VaR/CVaR 계산을 위한 데이터 부족: {n}개 (최소 20개 권장)")
+            if n < 5:
+                logger.warning(f"VaR/CVaR 계산을 위한 데이터 부족: {n}개 (최소 5개 권장)")
                 return 0.0, 0.0
             
             returns_array = returns.values
@@ -266,6 +262,8 @@ class MetricsService:
             
             var_value = float(var_95)
             cvar_value = float(cvar_95) if not np.isnan(cvar_95) else var_95
+            
+            logger.debug(f"VaR/CVaR 계산 완료: 데이터 {n}개, VaR={var_value:.4f}, CVaR={cvar_value:.4f}")
             
             return var_value, cvar_value
             
@@ -297,10 +295,8 @@ class MetricsService:
                     var_val = window_data[portfolio_name].get('var', 0.0)
                     cvar_val = window_data[portfolio_name].get('cvar', 0.0)
                     
-                    if var_val != 0.0:
-                        var_values.append((var_val, weights[i]))
-                    if cvar_val != 0.0:
-                        cvar_values.append((cvar_val, weights[i]))
+                    var_values.append((var_val, weights[i]))
+                    cvar_values.append((cvar_val, weights[i]))
             
             weighted_var = sum(val * weight for val, weight in var_values) if var_values else 0.0
             weighted_cvar = sum(val * weight for val, weight in cvar_values) if cvar_values else 0.0
