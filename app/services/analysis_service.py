@@ -88,6 +88,11 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
         benchmark_returns = await benchmark_repo.get_benchmark_returns_series(
             benchmark_code, analysis_start, analysis_end
         )
+        
+        logger.info(f"벤치마크 수익률 조회 결과: {len(benchmark_returns)}개 데이터, empty={benchmark_returns.empty}")
+        if not benchmark_returns.empty:
+            logger.info(f"벤치마크 수익률 범위: {benchmark_returns.min():.6f} ~ {benchmark_returns.max():.6f}")
+            logger.info(f"벤치마크 수익률 평균: {benchmark_returns.mean():.6f}")
 
         risk_free_calculator = RiskFreeRateCalculator(session)
         risk_free_rate = await risk_free_calculator.calculate_risk_free_rate(
@@ -95,7 +100,9 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
         )
 
         if not benchmark_returns.empty:
+            logger.info(f"동기화 전: 포트폴리오 {len(prices_df)}개, 벤치마크 {len(benchmark_returns)}개")
             prices_df, benchmark_returns = self._synchronize_time_series(prices_df, benchmark_returns)
+            logger.info(f"동기화 후: 포트폴리오 {len(prices_df)}개, 벤치마크 {len(benchmark_returns)}개")
 
         optimization_results = await self._perform_rolling_optimization(
             prices_df, benchmark_returns, risk_free_rate
@@ -131,11 +138,18 @@ class AnalysisService(OptimizationService, MetricsService, DataService, Benchmar
         if not benchmark_returns.empty:
             benchmark_annual_return = benchmark_returns.mean() * 252.0
             benchmark_volatility = benchmark_returns.std() * np.sqrt(252)
+            
+            logger.info(f"벤치마크 수익률 계산: {benchmark_annual_return:.6f}, 변동성: {benchmark_volatility:.6f}")
+            
             benchmark_info = BenchmarkInfo(
                 code=benchmark_code,
                 benchmark_return=float(benchmark_annual_return),
                 volatility=float(benchmark_volatility)
             )
+            
+            logger.info(f"BenchmarkInfo 생성 완료: {benchmark_info}")
+        else:
+            logger.warning("벤치마크 수익률이 비어있어 BenchmarkInfo 생성하지 않음")
 
         capped_assets = []
         floored_assets = []
