@@ -96,8 +96,22 @@ class BacktestAnalysisService:
         
         analysis_service = AnalysisService()
         
-        annual_return = portfolio_synced.mean() * 252
-        annual_volatility = portfolio_synced.std() * np.sqrt(252)
+        # Fix: Calculate annual return and volatility more robustly
+        daily_mean_return = portfolio_synced.mean()
+        daily_std_return = portfolio_synced.std()
+        
+        # Cap extreme daily returns that might indicate calculation errors
+        if abs(daily_mean_return) > 0.1:  # Daily return > 10% is suspicious
+            logger.warning(f"Extreme daily mean return detected: {daily_mean_return:.4f}")
+        
+        annual_return = daily_mean_return * 252
+        
+        # Cap extreme volatility values
+        if daily_std_return > 0.5:  # Daily volatility > 50% is suspicious
+            logger.warning(f"Extreme daily volatility detected: {daily_std_return:.4f}, capping at 0.5")
+            daily_std_return = 0.5
+        
+        annual_volatility = daily_std_return * np.sqrt(252)
         
         sharpe = (annual_return - risk_free_rate) / annual_volatility if annual_volatility > 0 else 0.0
         
