@@ -74,7 +74,11 @@ class MetricsService:
     ) -> Any:
         """포트폴리오 성능 지표 계산"""
         
-        expected_return = portfolio_returns.mean() * 252.0
+        # 올바른 연간화 방법: (1 + 일별평균수익률)^252 - 1
+        daily_mean_return = portfolio_returns.mean()
+        expected_return = (1 + daily_mean_return) ** 252 - 1
+        
+        # 변동성은 올바르게 연간화됨: 일별변동성 × √252
         variance = portfolio_returns.var() * 252.0
         std_deviation = np.sqrt(max(variance, 0.0))
         
@@ -86,7 +90,9 @@ class MetricsService:
             upside_beta, downside_beta = self._calculate_upside_downside_beta(
                 portfolio_returns, benchmark_returns, benchmark_returns.mean()
             )
-            benchmark_annual_return = benchmark_returns.mean() * 252.0
+            # 벤치마크 연간 수익률도 올바른 방식으로 계산
+            benchmark_daily_mean = benchmark_returns.mean()
+            benchmark_annual_return = (1 + benchmark_daily_mean) ** 252 - 1
         else:
             beta = 1.0
             alpha = 0.0
@@ -155,7 +161,8 @@ class MetricsService:
             slope, intercept, r_value, p_value, std_err = linregress(x, y)
             
             beta = float(slope)
-            alpha = float(intercept) * 252.0
+            # 알파 연간화: 일별 알파값을 연간화
+            alpha = float(intercept * 252.0)
             correlation = float(r_value)
             
             if np.isnan(beta) or np.isinf(beta):
