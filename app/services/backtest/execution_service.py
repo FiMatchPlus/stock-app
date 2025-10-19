@@ -135,8 +135,15 @@ class BacktestExecutionService:
             
             # 현금 포함 총 포트폴리오 가치 계산
             total_portfolio_value = current_portfolio_value + cash_balance
-            prev_value = portfolio_data[-1]['portfolio_value'] if portfolio_data else total_portfolio_value
-            daily_return = (total_portfolio_value - prev_value) / prev_value if prev_value > 0 else 0.0
+            
+            # Fix: Calculate daily return correctly, handling first day properly
+            if portfolio_data:
+                prev_value = portfolio_data[-1]['portfolio_value']
+                daily_return = (total_portfolio_value - prev_value) / prev_value if prev_value > 0 else 0.0
+            else:
+                # First day: no previous value, so daily return should be 0
+                daily_return = 0.0
+                prev_value = total_portfolio_value
             
             portfolio_data.append({
                 'datetime': date,
