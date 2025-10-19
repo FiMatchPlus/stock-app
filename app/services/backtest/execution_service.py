@@ -111,6 +111,7 @@ class BacktestExecutionService:
         result_summary = []
         execution_logs = []
         final_status = "COMPLETED"
+        cash_balance = 0.0  # 현금 잔고 추가
         
         for i, date in enumerate(price_pivot.index):
             current_portfolio_value = 0
@@ -132,18 +133,22 @@ class BacktestExecutionService:
                         stock_return = (stock_price - avg_prices[stock_code]) / avg_prices[stock_code]
                         individual_returns[stock_code] = stock_return
             
-            prev_value = portfolio_data[-1]['portfolio_value'] if portfolio_data else current_portfolio_value
-            daily_return = (current_portfolio_value - prev_value) / prev_value if prev_value > 0 else 0.0
+            # 현금 포함 총 포트폴리오 가치 계산
+            total_portfolio_value = current_portfolio_value + cash_balance
+            prev_value = portfolio_data[-1]['portfolio_value'] if portfolio_data else total_portfolio_value
+            daily_return = (total_portfolio_value - prev_value) / prev_value if prev_value > 0 else 0.0
             
             portfolio_data.append({
                 'datetime': date,
-                'portfolio_value': current_portfolio_value,
+                'portfolio_value': total_portfolio_value,
+                'stock_value': current_portfolio_value,
+                'cash_balance': cash_balance,
                 'daily_return': daily_return,
                 'quantities': quantities.copy()
             })
             
             if trading_rules_service:
-                should_execute, daily_logs, status = await trading_rules_service.check_trading_rules(
+                should_execute, daily_logs, status, sell_orders = await trading_rules_service.check_trading_rules(
                     date=date,
                     portfolio_data=portfolio_data,
                     individual_values=individual_values,
@@ -154,16 +159,27 @@ class BacktestExecutionService:
                     rules=request.rules
                 )
                 
-                if should_execute:
+                if should_execute and sell_orders:
                     execution_logs.extend(daily_logs)
                     final_status = status
                     
-                    quantities = {code: 0 for code in quantities.keys()}
+                    # 부분 매도 처리
+                    for stock_code, sell_quantity in sell_orders.items():
+                        if stock_code in quantities and quantities[stock_code] > 0:
+                            # 매도 수량만큼 현금 생성
+                            stock_price = individual_prices.get(stock_code, 0)
+                            cash_from_sale = stock_price * sell_quantity
+                            cash_balance += cash_from_sale
+                            
+                            # 보유 수량 감소
+                            quantities[stock_code] = max(0, quantities[stock_code] - sell_quantity)
                     
-                    portfolio_data[-1]['status'] = 'LIQUIDATED'
-                    portfolio_data[-1]['liquidation_reason'] = 'TRADING_RULES'
-                    
-                    break
+                    # 포트폴리오 전체 청산인 경우
+                    if status == "LIQUIDATED":
+                        quantities = {code: 0 for code in quantities.keys()}
+                        portfolio_data[-1]['status'] = 'LIQUIDATED'
+                        portfolio_data[-1]['liquidation_reason'] = 'TRADING_RULES'
+                        break
             
             daily_stocks = []
             for stock_code in common_stocks:
@@ -171,7 +187,7 @@ class BacktestExecutionService:
                     stock_price = price_data.loc[date, stock_code]
                     stock_quantity = quantities[stock_code]
                     stock_value = stock_price * stock_quantity
-                    stock_weight = stock_value / current_portfolio_value if current_portfolio_value > 0 else 0.0
+                    stock_weight = stock_value / total_portfolio_value if total_portfolio_value > 0 else 0.0
                     
                     if stock_code in avg_prices:
                         stock_return = (stock_price - avg_prices[stock_code]) / avg_prices[stock_code]
@@ -194,7 +210,9 @@ class BacktestExecutionService:
             summary_item = {
                 'date': date.isoformat(),
                 'stocks': daily_stocks,
-                'portfolio_value': current_portfolio_value,
+                'portfolio_value': total_portfolio_value,
+                'stock_value': current_portfolio_value,
+                'cash_balance': cash_balance,
                 'quantities': quantities.copy()
             }
             

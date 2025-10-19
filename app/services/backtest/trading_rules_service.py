@@ -27,20 +27,36 @@ class TradingRulesService:
         quantities: Dict[str, int],
         benchmark_returns: Optional[pd.Series] = None,
         rules: Optional[TradingRules] = None
-    ) -> Tuple[bool, List[ExecutionLog], str]:
+    ) -> Tuple[bool, List[ExecutionLog], str, Dict[str, int]]:
         """
         거래 규칙 검증 및 실행
         
         Returns:
-            Tuple[bool, List[ExecutionLog], str]: (실행여부, 실행로그, 상태)
+            Tuple[bool, List[ExecutionLog], str, Dict[str, int]]: (실행여부, 실행로그, 상태, 매도할종목수량)
         """
         if not rules:
-            return False, [], "COMPLETED"
+            return False, [], "COMPLETED", {}
         
         execution_logs = []
+        total_sell_orders = {}  # 종목별 매도 수량 누적
         
+        # 개별 종목 손절/익절 체크
+        individual_sell_orders = await self._check_individual_stock_rules(
+            date=date,
+            individual_values=individual_values,
+            individual_prices=individual_prices,
+            individual_returns=individual_returns,
+            quantities=quantities,
+            rules=rules
+        )
+        
+        if individual_sell_orders:
+            execution_logs.extend(individual_sell_orders['logs'])
+            total_sell_orders.update(individual_sell_orders['sell_orders'])
+        
+        # 포트폴리오 전체 손절/익절 체크
         if rules.stopLoss:
-            should_stop_loss, stop_logs = await self._check_stop_loss_rules(
+            should_stop_loss, stop_logs, sell_orders = await self._check_stop_loss_rules(
                 date=date,
                 portfolio_data=portfolio_data,
                 individual_values=individual_values,
@@ -53,10 +69,11 @@ class TradingRulesService:
             
             if should_stop_loss:
                 execution_logs.extend(stop_logs)
-                return True, execution_logs, "LIQUIDATED"
+                total_sell_orders.update(sell_orders)
+                return True, execution_logs, "LIQUIDATED", total_sell_orders
         
         if rules.takeProfit:
-            should_take_profit, profit_logs = await self._check_take_profit_rules(
+            should_take_profit, profit_logs, sell_orders = await self._check_take_profit_rules(
                 date=date,
                 portfolio_data=portfolio_data,
                 individual_values=individual_values,
@@ -68,9 +85,11 @@ class TradingRulesService:
             
             if should_take_profit:
                 execution_logs.extend(profit_logs)
-                return True, execution_logs, "LIQUIDATED"
+                total_sell_orders.update(sell_orders)
+                return True, execution_logs, "LIQUIDATED", total_sell_orders
         
-        return False, execution_logs, "COMPLETED"
+        has_trades = len(total_sell_orders) > 0
+        return has_trades, execution_logs, "COMPLETED", total_sell_orders
     
     async def _check_stop_loss_rules(
         self,
@@ -82,7 +101,7 @@ class TradingRulesService:
         quantities: Dict[str, int],
         benchmark_returns: Optional[pd.Series],
         rules: List[TradingRule]
-    ) -> Tuple[bool, List[ExecutionLog]]:
+    ) -> Tuple[bool, List[ExecutionLog], Dict[str, int]]:
         """손절 규칙 체크"""
         
         execution_logs = []
@@ -128,16 +147,20 @@ class TradingRulesService:
                         value=value,
                         threshold=threshold,
                         reason=f"{rule.category} 손절: {value:.4f} > {threshold:.4f}",
-                        portfolio_value=current_portfolio_value
+                        portfolio_value=current_portfolio_value,
+                        sold_stocks=None,
+                        cash_generated=None
                     ))
                     
-                    return True, execution_logs
+                    # 포트폴리오 전체 청산 (모든 종목 매도)
+                    sell_orders = {code: quantities[code] for code in quantities.keys()}
+                    return True, execution_logs, sell_orders
             
             except Exception as e:
                 logger.error(f"Error checking {rule.category} rule: {str(e)}")
                 continue
         
-        return False, execution_logs
+        return False, execution_logs, {}
     
     async def _check_take_profit_rules(
         self,
@@ -148,7 +171,7 @@ class TradingRulesService:
         individual_returns: Dict[str, float],
         quantities: Dict[str, int],
         rules: List[TradingRule]
-    ) -> Tuple[bool, List[ExecutionLog]]:
+    ) -> Tuple[bool, List[ExecutionLog], Dict[str, int]]:
         """익절 규칙 체크"""
         
         execution_logs = []
@@ -179,17 +202,107 @@ class TradingRulesService:
                         value=value,
                         threshold=threshold,
                         reason=f"{rule.category} 익절: {value:.4f} > {threshold:.4f}",
-                        portfolio_value=current_portfolio_value
+                        portfolio_value=current_portfolio_value,
+                        sold_stocks=None,
+                        cash_generated=None
                     ))
                     
-                    return True, execution_logs
+                    # 포트폴리오 전체 청산 (모든 종목 매도)
+                    sell_orders = {code: quantities[code] for code in quantities.keys()}
+                    return True, execution_logs, sell_orders
             
             except Exception as e:
                 logger.error(f"Error checking {rule.category} rule: {str(e)}")
                 continue
         
-        return False, execution_logs
+        return False, execution_logs, {}
     
+    async def _check_individual_stock_rules(
+        self,
+        date: datetime,
+        individual_values: Dict[str, float],
+        individual_prices: Dict[str, float],
+        individual_returns: Dict[str, float],
+        quantities: Dict[str, int],
+        rules: TradingRules
+    ) -> Optional[Dict[str, Any]]:
+        """개별 종목 손절/익절 규칙 체크"""
+        execution_logs = []
+        sell_orders = {}
+        
+        if not rules.stopLoss and not rules.takeProfit:
+            return None
+            
+        for stock_code, stock_return in individual_returns.items():
+            if quantities[stock_code] <= 0:
+                continue
+                
+            # 개별 종목 손절 체크
+            if rules.stopLoss:
+                for rule in rules.stopLoss:
+                    if rule.category == "INDIVIDUAL_LOSS":
+                        if stock_return < rule.value:  # 손실 한계 초과
+                            if date and isinstance(date, datetime):
+                                date_str = date.isoformat()
+                            else:
+                                date_str = datetime.now().isoformat()
+                            
+                            stock_value = individual_values[stock_code]
+                            stock_quantity = quantities[stock_code]
+                            stock_price = individual_prices[stock_code]
+                            cash_generated = stock_price * stock_quantity
+                            
+                            execution_logs.append(ExecutionLog(
+                                date=date_str,
+                                action="STOP_LOSS",
+                                category="INDIVIDUAL_LOSS",
+                                value=stock_return,
+                                threshold=rule.value,
+                                reason=f"{stock_code} 개별 손절: {stock_return:.4f} < {rule.value:.4f}",
+                                portfolio_value=sum(individual_values.values()),
+                                sold_stocks={stock_code: stock_quantity},
+                                cash_generated=cash_generated
+                            ))
+                            
+                            sell_orders[stock_code] = stock_quantity
+            
+            # 개별 종목 익절 체크
+            if rules.takeProfit:
+                for rule in rules.takeProfit:
+                    if rule.category == "INDIVIDUAL_PROFIT":
+                        if stock_return > rule.value:  # 수익 한계 초과
+                            if date and isinstance(date, datetime):
+                                date_str = date.isoformat()
+                            else:
+                                date_str = datetime.now().isoformat()
+                            
+                            stock_value = individual_values[stock_code]
+                            stock_quantity = quantities[stock_code]
+                            stock_price = individual_prices[stock_code]
+                            cash_generated = stock_price * stock_quantity
+                            
+                            execution_logs.append(ExecutionLog(
+                                date=date_str,
+                                action="TAKE_PROFIT",
+                                category="INDIVIDUAL_PROFIT",
+                                value=stock_return,
+                                threshold=rule.value,
+                                reason=f"{stock_code} 개별 익절: {stock_return:.4f} > {rule.value:.4f}",
+                                portfolio_value=sum(individual_values.values()),
+                                sold_stocks={stock_code: stock_quantity},
+                                cash_generated=cash_generated
+                            ))
+                            
+                            sell_orders[stock_code] = stock_quantity
+        
+        if execution_logs:
+            return {
+                'logs': execution_logs,
+                'sell_orders': sell_orders
+            }
+        
+        return None
+
     async def _check_beta_rule(
         self,
         portfolio_data: List[Dict[str, Any]],

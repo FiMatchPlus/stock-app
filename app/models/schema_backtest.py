@@ -23,7 +23,7 @@ class TradingRule(BaseModel):
     @field_validator('category')
     @classmethod
     def validate_category(cls, v):
-        valid_categories = ['BETA', 'MDD', 'VAR', 'ONEPROFIT', 'LOSS_LIMIT']
+        valid_categories = ['BETA', 'MDD', 'VAR', 'ONEPROFIT', 'LOSS_LIMIT', 'INDIVIDUAL_LOSS', 'INDIVIDUAL_PROFIT']
         if v not in valid_categories:
             raise ValueError(f'category must be one of: {valid_categories}')
         return v
@@ -141,6 +141,8 @@ class ExecutionLog(BaseModel):
     threshold: float = Field(..., description="임계값")
     reason: str = Field(..., description="실행 사유")
     portfolio_value: float = Field(..., description="포트폴리오 가치")
+    sold_stocks: Optional[Dict[str, int]] = Field(None, description="매도된 종목 코드와 수량")
+    cash_generated: Optional[float] = Field(None, description="매도로 생성된 현금")
 
 
 class BacktestResponse(BaseModel):
