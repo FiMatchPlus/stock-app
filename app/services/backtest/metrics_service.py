@@ -77,12 +77,28 @@ class BacktestMetricsService:
         # Fix: Calculate volatility more robustly, handling potential outliers
         daily_volatility = returns.std()
         
-        # Cap extreme volatility values that might be calculation errors
-        if daily_volatility > 0.5:  # More than 50% daily volatility is suspicious
-            logger.warning(f"Extreme daily volatility detected: {daily_volatility:.4f}, capping at 0.5")
-            daily_volatility = 0.5
+        # Debug logging for extreme volatility issues
+        logger.info(f"Returns analysis: count={len(returns)}, mean={returns.mean():.6f}, std={daily_volatility:.6f}")
+        if len(returns) > 0:
+            logger.info(f"Returns range: min={returns.min():.6f}, max={returns.max():.6f}")
+            extreme_returns = returns[np.abs(returns) > 0.1]  # > 10% daily
+            if len(extreme_returns) > 0:
+                logger.warning(f"Found {len(extreme_returns)} extreme daily returns (>10%): {extreme_returns}")
+        
+        # More realistic volatility caps for stock portfolios
+        # Daily volatility > 10% is extremely high for most stocks (annual ~160%)
+        if daily_volatility > 0.15:  # 15% daily = ~240% annual, still very high
+            logger.warning(f"Extremely high daily volatility detected: {daily_volatility:.4f} ({daily_volatility*100:.1f}%), capping at 15%")
+            daily_volatility = 0.15
+        elif daily_volatility > 0.10:  # 10% daily = ~160% annual
+            logger.warning(f"Very high daily volatility detected: {daily_volatility:.4f} ({daily_volatility*100:.1f}%), consider data validation")
         
         volatility = daily_volatility * np.sqrt(252)
+        
+        # Additional annual volatility cap check
+        if volatility > 2.0:  # 200% annual volatility is extremely high
+            logger.warning(f"Annual volatility still extremely high after capping: {volatility:.2%}, applying final cap at 200%")
+            volatility = 2.0
         
         risk_free_rate = 0.0
         sharpe_ratio = (annualized_return - risk_free_rate) / volatility if volatility > 0 else 0

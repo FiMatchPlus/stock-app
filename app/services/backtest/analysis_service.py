@@ -106,12 +106,19 @@ class BacktestAnalysisService:
         
         annual_return = daily_mean_return * 252
         
-        # Cap extreme volatility values
-        if daily_std_return > 0.5:  # Daily volatility > 50% is suspicious
-            logger.warning(f"Extreme daily volatility detected: {daily_std_return:.4f}, capping at 0.5")
-            daily_std_return = 0.5
+        # More realistic volatility caps for stock portfolios
+        if daily_std_return > 0.15:  # 15% daily = ~240% annual
+            logger.warning(f"Extremely high daily volatility detected: {daily_std_return:.4f} ({daily_std_return*100:.1f}%), capping at 15%")
+            daily_std_return = 0.15
+        elif daily_std_return > 0.10:  # 10% daily = ~160% annual
+            logger.warning(f"Very high daily volatility detected: {daily_std_return:.4f} ({daily_std_return*100:.1f}%), consider data validation")
         
         annual_volatility = daily_std_return * np.sqrt(252)
+        
+        # Additional annual volatility cap check
+        if annual_volatility > 2.0:  # 200% annual volatility is extremely high
+            logger.warning(f"Annual volatility still extremely high after capping: {annual_volatility:.2%}, applying final cap at 200%")
+            annual_volatility = 2.0
         
         sharpe = (annual_return - risk_free_rate) / annual_volatility if annual_volatility > 0 else 0.0
         
